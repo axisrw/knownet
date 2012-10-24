@@ -1,0 +1,15 @@
+name = "LDAP Help"
+description = LDAP Integration Admin Help.
+package = LDAP integration
+core = 6.x
+version = "6.x-1.0-alpha"
+dependencies[] = ldapauth
+project = "ldap_integration"
+
+
+/**
+ * @file
+ * info file for ldaphelp module
+ *
+ */
+

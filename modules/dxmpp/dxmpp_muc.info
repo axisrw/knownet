@@ -1,0 +1,13 @@
+; $Id: dxmpp_muc.info,v 1.1.2.1 2010/07/01 08:02:36 darklrd Exp $
+name = DXMPP MUC
+description = Provides the Drupal XMPP Multi User Chat service.
+core = 6.x
+package = XMPP
+dependencies[] = dxmpp
+
+; Information added by drupal.org packaging script on 2010-07-28
+version = "6.x-1.0-beta1"
+core = "6.x"
+project = "dxmpp"
+datestamp = "1280348708"
+

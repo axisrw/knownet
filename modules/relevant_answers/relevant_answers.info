@@ -1,0 +1,21 @@
+; $Id: relevant_answers.info,v 1.1 2010/08/02 17:16:22 chipcleary Exp $
+name = "Relevant Answers"
+description = "Allows users to ask questions associated with the current page"
+core = "6.x"
+dependencies[] = "answers"
+dependencies[] = "features"
+dependencies[] = "text"
+dependencies[] = "views"
+features[content][] = "question-field_question_path"
+features[views][] = "relevant_questions"
+features[views_api][] = "api:2"
+package = "Answers"
+project = "relevant_answers"
+version = "6.x-2.0"
+
+; Information added by drupal.org packaging script on 2011-05-06
+version = "6.x-2.1"
+core = "6.x"
+project = "relevant_answers"
+datestamp = "1304647016"
+

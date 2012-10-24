@@ -1,0 +1,1466 @@
+<?php
+// $Id: cdn2.module,v 1.3.2.34 2009/11/30 23:41:27 ocyrus Exp $
+
+function cdn2_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+  $types = array();
+  $types = _cdn2_get_content_types();
+  switch ($op) {
+    case 'insert':
+    case 'update':
+      if(in_array($node->type, $types)) {
+        $field = _cdn2_get_field_by_content_type($node->type);
+        $field_name[0] = $field['field_name'];
+        $video_token = $node->$field_name[0];
+        $video_token = $video_token[0]['video_token'];
+        $nid = $node->nid;
+        $SQL = "UPDATE {cdn2_videos} SET nid=%d WHERE video_token='%s'";
+        db_query($SQL, $nid, $video_token);
+        $SQL = "UPDATE {cdn2_video_node} SET nid=%d WHERE video_token='%s'";
+        db_query($SQL, $nid, $video_token);
+      }
+      break;
+  }
+}
+  /*
+   * @file cdn2.module
+   */
+function cdn2_requirements($phase) {
+  if ($phase == 'runtime') {
+    $t = get_t();
+    $requirements['cdn2_php'] = array(
+      'title' => $t('CDN2: PHP Version'),
+      'value' => phpversion() . ' (Compatible)',
+    );
+    $requirements['soap'] = array(
+      'title' => $t('CDN2: PHP SOAP Extension'),
+      'value' => $t('Installed')
+    );
+    if (version_compare(phpversion(), "5.2") == -1) {
+      $requirements['php']['value'] = phpversion() . '(Too Old)';
+      $requirements['php']['description'] = $t("PHP version 5.2 or higher is required for CDN2 to function properly.");
+      $requirements['php']['severity'] = REQUIREMENT_ERROR;
+    }
+
+    if (!class_exists('SoapClient')) {
+      $requirements['soap']['value'] = $t('Not Installed');
+      $requirements['soap']['description'] = $t('The native PHP SOAP extension is not installed.');
+      $requirements['soap']['severity'] = REQUIREMENT_ERROR;
+    }
+    return $requirements;
+  }
+}
+
+function cdn2_theme() {
+  return array(
+    'cdn2_formatter_default' => array(
+      'arguments' => array(
+        'element' => NULL
+      )
+    ),
+    'cdn2_formatter_thumbnail' => array(
+      'arguments' => array(
+        'element' => NULL
+      )
+    ),
+    'cdn2_formatter_thumbnail_linked' => array(
+      'arguments' => array(
+        'element' => NULL
+      )
+    ),
+    'cdn2_preset_sizes' => array(
+      'arguments' => array(
+        'preset' => NULL
+      )
+    ),
+    'cdn2_video' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        'node' => NULL,
+        'field' => NULL,
+        'items' => NULL,
+        'teaser' => NULL,
+        'page' => NULL,
+      ),
+    ),
+    'cdn2_upload_form' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        'token' => 0,
+        'messages' => NULL,
+      ),
+    ),
+    'cdn2_progress_image_settings' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        'node' => NULL,
+      ),
+    ),
+    'cdn2_video_asset' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+        '&$asset' => NULL,
+        'preset' => NULL,
+      ),
+    ),
+    'cdn2_asset_video_length' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        'video_length' => NULL,
+      ),
+    ),
+    'cdn2_asset_file_size' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        'file_size' => NULL,
+      ),
+    ),
+    'cdn2_video_asset_metadata' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+        'asset' => NULL,
+        'preset' => NULL,
+      ),
+    ),
+    'cdn2_video_asset_mov' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+        '&$asset' => NULL,
+        'preset' => NULL,
+      ),
+    ),
+    'cdn2_video_asset_flash' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+        '&$asset' => NULL,
+        'preset' => NULL,
+      ),
+    ),
+    'cdn2_video_asset_flash_flv_hd_low' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+        '&$asset' => NULL,
+        'preset' => NULL,
+      ),
+    ),
+    'cdn2_video_asset_flash_flv_ultra_wide' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+        '&$asset' => NULL,
+        'preset' => NULL,
+      ),
+    ),
+    'cdn2_video_asset_320x240_thumb' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+        '&$asset' => NULL,
+        'preset' => NULL,
+      ),
+    ),
+    'cdn2_video_asset_image_generate' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+        '&$asset' => NULL,
+        'preset' => NULL,
+      ),
+    ),
+    'cdn2_video_asset_generic' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+        '&$asset' => NULL,
+        'preset' => NULL,
+      ),
+    ),
+    'cdn2_asset_results_page' => array(
+      'file' => 'cdn2.module',
+      'arguments' => array(
+        '&$node' => NULL,
+      ),
+    ),
+  );
+};
+
+define('CDN2_DEFAULT_ENDPOINT', 'http://soap.cdn2.net:8080/services/transcodeService?wsdl');
+define('CDN2_DEFAULT_FORM', 'http://upload1.cdn2.net:8080/fileUpload.html');
+
+// include cck field definitions for CDN2 field type
+
+module_load_include('inc', 'cdn2', 'cdn2_field');
+
+function cdn2_tracking_settings() {
+  // Use the Google Analytics 
+  $account = variable_get('googleanalytics_account', FALSE);
+  $form['cdn2_tracking_settings'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Google Analytics Settings'),
+  );
+  $form['cdn2_tracking_settings']['cdn2_tracking_enabled'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Enable Google Analytics Tracking'),
+    '#default_value' => variable_get('cdn2_tracking_enabled', 0),
+  );
+  $form['cdn2_tracking_settings']['cdn2_googleanalytics_account'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Google Analytics account number'),
+    '#default_value' => $account ? $account : variable_get('cdn2_googleanalytics_account', 'UA-'), 
+    '#size' => 15,
+    '#maxlength' => 20,
+    '#required' => TRUE,
+    '#description' => t('The account number is unique to the websites domain. Click the <strong>Edit</strong> link in your Google Analytics account next to the appropriate profile on the <strong>Analytics Settings</strong> page, then select <strong>Check Status</strong> at the top-right of the table to find the account number (UA-xxxx-x) of your site. You can obtain a user account from the <a href="@url">Google Analytics</a> website.', array('@url' => 'http://www.google.com/analytics/')),
+  );
+  $form['cdn2_tracking_settings']['cdn2_tracking_path'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Tracking Path'),
+    '#description' => t('Provide a unique path that will help identify CDN2 videos in the Google Analytics interface. Filename will be appened to the path.'),
+    '#default_value' => variable_get('cdn2_tracking_path', 'cdn2/videos/'),
+  );
+  return system_settings_form($form);
+}
+
+function cdn2_form_alter($form, $form_values) {
+  $field_info = _cdn2_get_field_by_content_type($form['#node']->type);
+  $field_name = $field_info['field_name'];
+  if(is_array($form['#field_info'][$field_name])){
+    $form['#submit'][] = 'cdn2_form_submit';
+  }
+}
+
+function cdn2_form_submit($form, $form_values){
+  $values = $form_values['values'];
+  $field = _cdn2_get_field_by_content_type($values['type']);
+  $image_name = $field['field_name'] .'_image';
+
+  //Grab our chosen image
+  $image_number = $values[$image_name] ? $values[$image_name] : 1;
+  //Grab our nid
+  $nid = $values['nid'];
+
+  _cdn2_update_splash_image_number($nid, $image_number);
+}
+
+function _cdn2_update_splash_image_number($nid, $number = 1) {
+  $SQL = "UPDATE {cdn2_video_node} SET splash_image_number=%d WHERE nid=%d";
+  db_query($SQL, $number, $nid);
+}
+function _cdn2_get_splash_image_number($nid) {
+  $SQL = "SELECT splash_image_number FROM {cdn2_video_node} WHERE nid=%d";
+  $result = db_query($SQL, $nid);
+  $return = db_fetch_object($result);
+  return $return->splash_image_number;
+}
+function theme_cdn2_video_asset_image_generate(&$node, &$asset, $preset) {
+  $assets = $node->{$preset}[0]['assets'];
+  foreach($assets as $masset) {
+    if($masset['file_size'] != '-0kB') {
+      $video_asset = $masset;
+      break;
+    }
+  }
+  $video_url = $masset['asset_fetch_url']; 
+  for($x=1; $x<=10; $x++) {
+    $suffix =  '_thumb_00'. $x .'.jpg';
+    if($x==10) {
+      $suffix =  '_thumb_0'. $x .'.jpg';
+    }
+    $images[$x] = '<br><img width="200" src="'. preg_replace("%\.[^\.]*$%", $suffix, $video_url) .'">';
+  }
+  return $images;
+}
+
+/**
+ * parent function to render out the video node. Directs calls out to individual video assets.
+ */
+function theme_cdn2_video($node, $field, $items, $teaser, $page) {
+
+  $output = '';
+  $presets = _cdn2_get_available_presets();
+  $output_items = array();
+  if (isset($field['assets']) && count($field['assets'])) {
+    for ($asset_key = 0; $asset_key < count($field['assets']); $asset_key++) {
+      $asset = $field['assets'][$asset_key];
+      if (user_access('view cdn2 video transcoded with ' . $asset['preset_name']) && $presets[$asset['preset_name']]->fileFormat != 'JPEG') {
+        $output_items[] = '<div id="node-'. $node->nid .'-'. $asset['preset_name'] .'">'. theme('cdn2_video_asset', $node, $asset, $presets[$asset['preset_name']]) .'</div>';
+        $preset_list[$asset['preset_name']] = '<a href="#node-'. $node->nid .'-'. $asset['preset_name'] .'"><span>'. $presets[$asset['preset_name']]->friendlyName .'</span></a>';
+      }
+    }
+  } else { //basically we didnt have any assets that came through the field, lets see if we have items
+    //I use $items[0] here because a cdn2 video field should never have multiple values
+    for ($asset_key = 0; $asset_key < count($items[0]['assets']); $asset_key++) {
+      $asset = $items[0]['assets'][$asset_key];
+      if (user_access('view cdn2 video transcoded with ' . $asset['preset_name']) && $presets[$asset['preset_name']]->fileFormat != 'JPEG') {
+        $output_items[] = '<div id="node-'. $node->nid .'-'. $asset['preset_name'] .'">'. theme('cdn2_video_asset', $node, $asset, $presets[$asset['preset_name']]) .'</div>';
+        $preset_list[$asset['preset_name']] = '<a href="#node-'. $node->nid .'-'. $asset['preset_name'] .'"><span>'. $presets[$asset['preset_name']]->friendlyName .'</span></a>';
+      }
+    }
+
+  }
+  $output .= '<div class="cdn2_tabs">';
+  $output .= '<ul>';
+  if (count($preset_list)) {
+    foreach ($preset_list as $preset_name => $preset_list_item) {
+      if (strpos($preset_name, 'thumb') == FALSE) {
+        $output .= '<li>'. $preset_list_item .'</li>';
+      }
+    }
+  }
+  $output .= '</ul>';
+  $output .= implode("\n", $output_items);
+  $output .= '</div>';
+  return $output;
+}
+
+/**
+ * parent function to render wrapper around a video asset.  Delegates to
+ * appropriate theming functions based on preset short name, followed by
+ * file format, then finally the generic type.
+ */
+function theme_cdn2_video_asset(&$node, &$asset, $preset) {
+  $output = '';
+  $output .= '<div class="cdn2_video_asset">';
+  $registry = theme_get_registry();
+  //print_r($preset);
+  if ($asset['preset_name'] && user_access('view cdn2 video transcoded with '. $preset->shortName)) {
+    $theme_function = 'cdn2_video_asset_';
+    if ($registry[$theme_function. drupal_strtolower($preset->shortName)]) {
+      $theme_function .= drupal_strtolower($preset->shortName);
+    }
+    else if ($registry[$theme_function. drupal_strtolower($preset->fileFormat)]) {
+      $theme_function .= drupal_strtolower($preset->fileFormat);
+    } 
+    else {
+      $theme_function .= 'generic';
+    }
+    $output .= theme($theme_function, $node, $asset, $preset);
+
+    $output .= '</div>';
+    $output .= '<div class="cdn2_metadata">';
+    $output .= theme('cdn2_video_asset_metadata', $node, $asset, $preset);
+    $output .= '</div>';
+    $output .= '<div class="clear-block"></div>';
+ 
+   return $output;
+  }
+}
+
+/**
+ * themes the video length as a time formatted as (hh:mm:ss)
+ */
+function theme_cdn2_asset_video_length($video_length) {
+  if (!is_numeric($video_length)) {
+    return $video_length;
+  }
+
+  $hms = '';
+  $hours = intval(intval($video_length) / 3600);
+  $hms .= str_pad($hours, 2, '0', STR_PAD_LEFT) .':';
+  $minutes = intval(($video_length / 60) % 60);
+  $hms .= str_pad($minutes, 2, '0', STR_PAD_LEFT) . ':';
+  $seconds = intval($video_length % 60);
+  $hms .= str_pad($seconds, 2, '0', STR_PAD_LEFT);
+
+  return $hms;
+}
+
+/**
+ * themes file size in kb, mb, etc.
+ */
+function theme_cdn2_asset_file_size($file_size) {
+  $output = '';
+  if (!is_numeric($file_size)) {
+    // try stripping off 'kb' from the end
+    //
+    $file_size = str_replace('kB', '', $file_size);
+    if (!is_numeric($file_size)) {
+      return $file_size;
+    }
+  }
+  if ($file_size < 1024) {
+    $output .= $file_size .' KBytes';
+  }
+  elseif ($file_size < 1048576) {
+    $file_size = $file_size / 1024;
+    $file_size = round($file_size, 2);
+    $output .= $file_size .' MBytes';
+  }
+  else {
+    $file_size = $file_size / 1048576;
+    $file_size = round($file_size, 2);
+    $output .= $file_size .' GBytes';
+  }
+  return $output;
+}
+
+/**
+ * theme metadata about a video asset
+ */
+function theme_cdn2_video_asset_metadata(&$node, $asset, $preset) {
+  $items = array();
+  $title = t('Video Information:');
+  $item = t('Duration: ');
+  // TODO: theme the video length into DD:MM:SS
+  $item .= ($asset['video_length'] === NULL) ? 'unknown' : theme('cdn2_asset_video_length', $asset['video_length']);
+  $items[] = $item;
+  $item =  t('File Size: ');
+  // TODO: 
+  $item .= ($asset['file_size'] === NULL) ? 'unknown' : theme('cdn2_asset_file_size', $asset['file_size']);
+  $items[] = $item;
+  $item = t('File Format: ');
+  switch ($preset->fileFormat) {
+    case 'FLASH':
+      $item .= t('Flash Video (FLV)');
+      break;
+    case 'MOV':
+      $item .= t('Quicktime (MOV)');
+      break;
+    default: 
+      $item .= $preset->fileFormat;
+      break;
+  }
+  $items[] = $item;
+  $items[] = l('Download raw video file', $asset['asset_fetch_url']);
+  
+  return theme('item_list', $items, $title);
+}
+
+/**
+ * custom theming function for quicktime videos
+ */
+function theme_cdn2_video_asset_mov(&$node, &$asset, $preset) {
+  $output = '
+<object classid="clsid:02BF25D5-8C17-4B23-BC80-D3488ABDDC6B" codebase="http://www.apple.com/qtactivex/qtplugin.cab" height="256" width="320">
+  <param name="src" value="%s">
+  <param name="autoplay" value="false">
+  <param name="type" value="video/quicktime" height="256" width="320">
+  <embed src="%s" height="256" width="320" autoplay="false" type="video/quicktime" pluginspage="http://www.apple.com/quicktime/download/">
+</object>';
+  $output = sprintf($output, $asset['asset_fetch_url'], $asset['asset_fetch_url']);
+  return $output;
+}
+
+
+/**
+ * custom theming function for flv types
+ */
+function theme_cdn2_video_asset_flash(&$node, &$asset, $preset) {
+
+  $var = variable_get('cdn2_flash_player', 'flowplayer');
+  $players = module_invoke_all('cdn2_player', 'flash');
+  $theme_function = $players[$var]['theme function'];
+  $preset_name = $preset->shortName;
+  $size = theme('cdn2_preset_sizes', $preset_name);
+  return theme($theme_function, $node, $asset, $preset, $size['width'], $size['height']);
+}
+
+/**
+ * custom theming function for flv hd types
+ */
+function theme_cdn2_video_asset_flash_flv_hd_low(&$node, &$asset, $preset) {
+  $var = variable_get('cdn2_flash_player', 'flowplayer');
+  $players = module_invoke_all('cdn2_player', 'flash');
+  $theme_function = $players[$var]['theme function'];
+  $preset_name = $preset->shortName;
+  $size = theme('cdn2_preset_sizes', $preset_name);
+  return theme($theme_function, $node, $asset, $preset, $size['width'], $size['height']);
+}
+
+/**
+ * custom theming function for flv hd types
+ */
+function theme_cdn2_video_asset_flash_flv_ultra_wide(&$node, &$asset, $preset) {
+  $var = variable_get('cdn2_flash_player', 'flowplayer');
+  $players = module_invoke_all('cdn2_player', 'flash');
+  $theme_function = $players[$var]['theme function'];
+  $preset_name = $preset->shortName;
+  $size = theme('cdn2_preset_sizes', $preset_name);
+  return theme($theme_function, $node, $asset, $preset, $size['width'], $size['height']);
+}
+
+
+/**
+ * themeing function to handle sizes of players/images
+ *  returns generic sizes if no preset found.
+ * if preset is set, and valid, returns that presets width and height
+ */
+
+function theme_cdn2_preset_sizes($preset = NULL) {
+  $preset_sizes = array(
+    'asset_generic' => array('width' => '320', 'height' => '240'),
+    'flash_hd_low' => array('width' => '640', 'height' => '360'),
+    'flash_flv_hd_high' => array('width' => '640', 'height' => '360'),
+    'flash' => array('width' => '320', 'height' => '240'),
+    'flash_flv_ultra_wide' => array('width' => '448', 'height' => '252'),    
+  );
+  if(!empty($preset)) {
+    if(array_key_exists($preset, $preset_sizes)) {
+      return $preset_sizes[$preset];
+    }
+    else {
+      return array('width' => '320', 'height' => '240');
+    }
+  }
+  else {
+    return $preset_sizes;
+  }
+}
+/**
+ * theming function for a thumbnail
+ */
+function theme_cdn2_video_asset_320x240_thumb(&$node, &$asset, $preset) {
+  //  return '<img src="'. check_url($asset['asset_fetch_url']) .'" alt="'. check_plain($node->title) .'"/>';
+}
+
+/**
+ * theming function for other (unknown) types that renders them as
+ * a link to the downloadable file.
+ */
+function theme_cdn2_video_asset_generic(&$node, &$asset, $preset) {
+  return l($preset->friendlyName, $asset['asset_fetch_url']);    
+}
+
+
+/**
+ * Implementation of hook_perm().
+ */
+function cdn2_perm() {
+  $perms = array('administer cdn2', 'delete cdn2 video');
+  $enabled_presets = variable_get('cdn2_allowed_presets', array());
+  foreach ($enabled_presets as $preset) { 
+    if ($preset) { 
+      $perms[] = 'transcode cdn2 video to '. $preset;
+      $perms[] = 'view cdn2 video transcoded with '. $preset;
+    }
+  }
+  $perms[] = 'transcode cdn2 video to 320x240_thumb';
+  $perms[] = 'view cdn2 video transcoded with 320x240_thumb';
+  $perms[] = 'delete own cdn2 video';
+  $perms[] = 'view upload status';
+  return $perms;
+}
+
+
+function cdn2_get_asset_status($nid) {
+  $node = node_load($nid);
+
+  $field = _cdn2_get_field_by_content_type($node->type);
+  $field_name = $field['field_name'];
+  $video_field = $node->$field_name;
+  $cdn2 = _cdn2_get_soap_client();
+  $assets = $cdn2->getAssetsForVideoToken($video_field[0]['video_token']);
+  
+  foreach($assets as $asset) {
+    if(is_object($asset))
+    $asset->videoToken = $video_field[0]['video_token'];
+  }
+  return $assets;
+}
+
+function theme_cdn2_asset_results_page($nid) {
+  $assets = cdn2_get_asset_status($nid);
+  $headers = array('Video Token', 'Preset Name', 'Status', 'Asset Fetch Url', 'File Size', 'Video Length');
+  drupal_set_message('If the assets are pending, you can refresh here to fetch the new results. Once a completed status is returned, it will update the video node. Alternatively you can setup cron to handle this for you.' );
+  foreach($assets as $asset) {
+    $video_token = $asset->videoToken;
+    $preset_name = $asset->preset->shortName;
+    $status = strtolower($asset->status);
+    $asset_fetch_url = l('link',$asset->fileName);
+    $file_size = $asset->fileSize;
+    $video_length = $asset->videoLength;
+    $rows[] = array($video_token, $preset_name, $status, $asset_fetch_url, $file_size, $video_length);
+    if($status == 'complete') {
+      _cdn2_update_video_asset_status($video_token, $preset_name, $status, $asset_fetch_url, $file_size, $video_length);
+    }
+  }
+  return theme('table', $headers, $rows);
+}
+
+function _cdn2_get_assets_for_node($nid) {
+  $query = 'SELECT id, nid, video_token, preset_name, status, asset_fetch_url FROM {cdn2_videos} WHERE nid=%d';
+  $resultset = db_query($query, $nid);
+  $results = array();
+  while ($row = db_fetch_array($resultset)) {
+    $results[] = $row;
+  }
+  return $results;
+}
+
+
+function cdn2_xmlrpc() {
+  //video_token, preset_name, status_as_string, asset_fetch_url
+  
+  // format of this response:
+  /* 
+     xmlrpc method name (e.g. module.function)
+     callback function (e.g. module_function)
+     method signature:
+       first argument is the return type.
+       remainder are arguments to the function.
+  */
+  return array(
+    array(
+      'cdn2.updateStatus',
+      'cdn2_update_status',
+      array('boolean',  // return value
+            'string',   // dateTime
+	    'string',   // calculatedHash
+	    'string',   // videoToken
+	    'string',   // preset shortName
+	    'string',   // status
+	    'string',   // fileName
+	    'string',   // fileSize
+	    'string'),  // videoLength
+      t('Update the status of a CDN2 video'),
+    )
+  );
+}
+
+
+function _cdn2_update_video_asset_status($video_token, $preset_name, $status, $asset_fetch_url, $file_size, $video_length) {
+  $content_types = _cdn2_get_content_types();
+  watchdog('cdn2', 'Received status information for video with token: %token ', array('%token' => $video_token));
+  foreach ($content_types as $content_type) {
+    $nid = _cdn2_get_nid_by_video_token($content_type, $video_token);
+    // if the node has not yet been submitted, it's possible that we'll get a status message back before then.  So 
+    // we persist the videotoken with a nid of zero and the node save will handle the population.  Hence why we ignore the nid here.
+    //
+    
+    // fetch the existing video_nid if it exists
+    //
+    $query = "SELECT nid FROM {cdn2_video_node} where video_token='%s'";
+    $video_nid = db_result(db_query($query, $video_token));
+        
+    $query = "SELECT id FROM {cdn2_videos} WHERE video_token = '%s' AND preset_name = '%s'";
+    $result = db_result(db_query($query, $video_token, $preset_name));
+    if (!$video_nid) {
+      watchdog("cdn2", "Node has not yet been saved.  Persisting a dummy record until it is.");
+    } else {
+      watchdog("cdn2", "Associating video %video and preset %preset with node %nid",array('%video' => $video_token, '%preset' => $preset_name, '%nid' => $video_nid));
+    }
+    if (!$result) {
+      // creating a new record for the video asset.  If the video's nid is set,
+      // we pass that, too
+      //
+      $id = db_last_insert_id('cdn2_videos', 'id');
+      $query = "INSERT INTO {cdn2_videos} (id, nid, video_token, preset_name, status, asset_fetch_url, file_size, video_length) 
+                  VALUES(%d, %d, '%s', '%s', '%s', '%s', '%s', '%s')";
+      db_query($query, $id, $video_nid, $video_token, $preset_name, $status, $asset_fetch_url, $file_size, $video_length);
+    }
+    else {
+      // update the video asset independent of node context
+      $query = "UPDATE {cdn2_videos} SET status='%s', asset_fetch_url='%s', file_size='%s', video_length='%s' WHERE preset_name='%s' AND video_token='%s'";
+      db_query($query, $status, $asset_fetch_url, $preset_name, $video_token);
+    }
+  }  
+
+  // check to see if the video was already submitted.  If it was, we update the node with nid associated in cdn2_video_node.  If not, we do nothing as
+  // it will get picked up by the node save itself.
+  //
+  if ($video_nid) {
+    // here we update the cdn2_videos table with the correct nid (in case the node was already submitted)
+    //
+    $query = "UPDATE {cdn2_videos} SET nid=%d WHERE video_token='%s'";
+    db_query($query, $video_nid, $video_token);
+    
+    // forcing a re-save of the node to clear cache
+    //
+    $node = node_load($video_nid);
+      
+    $content_type = $node->type;
+    $field_info = _cdn2_get_field_by_content_type($content_type);
+    
+    if ($update = variable_get('cdn2_workflow_settings', 0)) {
+      // update the node's status based on workflow settings
+      
+      if (!$node->status) {
+        $node->status = 1;
+        watchdog('cdn2', 'Marked '. $node->title .' as published');
+      }
+    }
+    cdn2_node_save($node);
+  } 
+  watchdog('cdn2', 'Completed transcoding '. $preset_name .' for video token '. $video_token);
+  return TRUE;
+}
+
+
+/**
+ * invoked when xmlrpc status callback is run
+ */
+function cdn2_update_status($dateTime, $calculatedHash, $video_token, $preset_name, $status, $asset_fetch_url, $file_size, $video_length) {
+  watchdog("cdn2", "hit xmlrpc");
+  
+  module_load_include('inc', 'cdn2', 'lib/libcdn2');
+  
+  $cdn2_secret_key = variable_get("cdn2_secret_key", "");
+  
+  $message = variable_get("cdn2_client_id", "") . $dateTime;
+  $verifiedHash = CDN2SoapClientImpl::hmacHash($cdn2_secret_key, $message);
+
+  if ($verifiedHash != $calculatedHash) {
+    // failed hash check.. Do nothing
+    watchdog("cdn2", "Invalid hash specified.  Ignoring xmlrpc request.");
+    return FALSE;
+  }
+  watchdog("cdn2", "Received valid authentication hash.  Processing request for status : " . $status);
+  switch ($status) {
+    case 'error':
+//      drupal_mail('admin_error_mail', variable_get('site_mail'), 'Error', 'There was an error in the transcoding process');
+      /* TODO Create a hook_mail($key, &$message, $params) function to generate
+      the message body when called by drupal_mail. */
+      $account = array(); // Set this as needed
+      $language = user_preferred_language($account);
+      $object = array(); // Replace this as needed
+      $context['subject'] = $subject;
+      $context['body'] = $body;
+      $params = array('account' => $account, 'object' => $object, 'context' => $context);
+      drupal_mail('cdn2', 'admin_error_mail', variable_get('site_mail'), $language, $params);
+      break;
+    case 'complete':
+      watchdog('cdn2', 'Updating status of video: %token with preset %preset', array("%token" => $video_token, "%preset" => $preset_name));
+      _cdn2_update_video_asset_status($video_token, $preset_name, $status, $asset_fetch_url, $file_size, $video_length);
+      break;
+    case 'deleted':
+      $content_types = _cdn2_get_content_types();
+      
+      foreach ($content_types as $content_type) {
+        $nid = _cdn2_get_nid_by_video_token($content_type, $video_token);
+        $query = "SELECT id FROM {cdn2_videos} WHERE nid = %d";
+        $result = db_result(db_query($query, $nid));
+        
+        if ($result) {
+          $query = "DELETE FROM {cdn2_videos} WHERE nid=%d ";
+          db_query($query, $nid);
+        }
+        else {
+          watchdog("cdn2", 'Error on deletion: nid %d, not found in cdn2_videos table', array("%d" => $nid));
+        }
+      }  
+      break;      
+  }
+  module_invoke_all('cdn2_video_asset_status', $video_token, $preset_name, $status, $asset_fetch_url, $file_size, $video_length);
+  return TRUE;
+}
+
+
+function _cdn2_get_nid_by_video_token($content_type, $video_token) {
+  $field_info = _cdn2_get_field_by_content_type($content_type);
+  $query = "SELECT nid FROM {%s} WHERE %s = '%s'";
+  $result = db_query($query, $field_info['table'], $field_info['field_name'] . '_video_token', $video_token);
+  $nid = db_fetch_object($result);
+  return $nid->nid;
+}
+/*
+ * cdn2_menu
+ * hook_menu implementation
+ * 
+ */
+function cdn2_menu() {
+  $items = array();
+  $items['admin/settings/cdn2'] = array(
+    'title' => 'CDN2 Settings',
+    'description' => 'Configure CDN2',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cdn2_settings'),
+    'type' => MENU_NORMAL_ITEM,
+    'access arguments' => array('administer site configuration'),
+  );
+  $items['admin/settings/cdn2/config'] = array(
+    'title' => 'CDN2 Settings',
+    'description' => 'Configure CDN2',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cdn2_settings'),
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'access arguments' => array('administer site configuration'),
+  );
+  
+  $items['admin/settings/cdn2/formats'] = array(
+    'title' => 'CDN2 Formats',
+    'description' => 'Select which formats to allow users to transcode to.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cdn2_format_settings'),
+    'type' => MENU_LOCAL_TASK,
+    'access arguments' => array('administer cdn2 formats')
+  );
+  $items['admin/settings/cdn2/workflow'] = array(
+    'title' => 'CDN2 Workflow Settings',
+    'description' => 'General workflow settings for CDN2',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cdn2_workflow_settings'),
+    'type' => MENU_LOCAL_TASK,
+    'access arguments' => array('administer site configuration'),
+  );
+  $items['admin/settings/cdn2/tracking'] = array(
+    'title' => 'CDN2 Video Tracking Settings',
+    'description' => 'Google Analytics Tracking Settings for Videos',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cdn2_tracking_settings'),
+    'type' => MENU_LOCAL_TASK,
+    'access arguments' => array('administer site configuration'),
+  );
+  $items['cdn2/uploadform'] = array(
+    'title' => 'Video upload form',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+    'page callback' => 'theme',
+    'page arguments' => array('cdn2_upload_form'),
+  );
+  $items['cdn2/xmlrpc'] = array(
+    'title' => 'XMLRPC callback',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+    'page callback' => 'cdn2_xmlrpc',
+  );
+  $items['cdn2/complete'] = array(
+    'title' => 'Upload Complete',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+    'page callback' => 'cdn2_upload_complete',
+    'page arguments' => array(2,3),
+  );
+  $items['cdn2/drop-asset'] = array(
+    'title' => 'Drop Assets?',
+    'access callback' => 'cdn2_can_drop_asset',
+    'access arguments' => array(2),
+    'type' => MENU_CALLBACK,
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('cdn2_drop_asset_form', 2),
+  );
+  $items['cdn2/uploadform/status'] = array(
+    'title' => 'Upload Status',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+    'page callback' => 'cdn2_get_upload_status'
+  );
+  $items['node/%/cdn2_status'] = array(
+    'title' => 'Upload Status',
+    'access callback' => 'cdn2_asset_status_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+    'page callback' => 'theme',
+    'page arguments' =>  array('cdn2_asset_results_page', 1),
+  );
+  return $items;
+}
+
+function cdn2_can_drop_asset($nid) {
+  global $user;
+  if(user_access('delete cdn2 video', $user)) {
+    return true;
+  } else if(user_access('delete own cdn2 video', $user)) {
+    $node = node_load($nid);
+    if($user->uid == $node->uid) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function cdn2_asset_status_access($nid) {
+  $node = node_load($nid);
+  $types = _cdn2_get_content_types();
+  if(in_array($node->type, $types)) {
+    if(user_access('view upload_status')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+function cdn2_drop_asset_form(&$form, $nid) {
+    $form = array();
+    $node = node_load($nid);
+    $form['sure'] = array(
+        '#value' => 'Are you sure you want to drop assets for the '. $node->type.' "'. $node->title . '"<br>',
+    );
+    $form['nid'] = array(
+        '#type' => 'hidden',
+        '#value' => $node->nid,
+    );
+    $form['delete'] = array(
+        '#type' => 'submit',
+        '#value' => 'I am sure!',
+    );
+    return $form;
+}
+
+function cdn2_drop_asset_form_submit(&$form, &$form_state) {
+    $values = $form_state['values'];
+    if($values['delete']) {
+        cdn2_drop_assets($values['nid']);
+    }
+}
+
+function cdn2_drop_assets($nid) {
+    $node = node_load($nid);
+    $SQL = 'DELETE FROM {cdn2_video_node} WHERE nid=%d';
+    db_query($SQL, $nid);
+    $SQL = 'DELETE FROM {cdn2_videos} WHERE nid=%d';
+    db_query($SQL, $nid);
+
+    drupal_set_message('All assets for "'. $node->title .'" have been dropped.');
+    drupal_goto('node/'.  $node->nid .'/edit');
+    cdn2_node_save($node);
+}
+
+
+function cdn2_cron() {
+  if(variable_get('cdn2_cron_enabled', 0)) {
+    $SQL = "SELECT a.nid FROM {cdn2_video_node} as a LEFT JOIN {cdn2_videos} as b ON a.nid = b.nid WHERE b.nid IS NULL";
+    $resource = db_query($SQL);
+    $x=0;
+    $max = variable_get('cdn2_cron_entries', 0);
+    while($row = db_fetch_object($resource)) {    
+      if($max == 0) {
+        $assets = cdn2_get_asset_status($row->nid);
+        foreach($assets as $asset) {
+          $video_token = $asset->videoToken;
+          $preset_name = $asset->preset->shortName;
+          $status = strtolower($asset->status);
+          $asset_fetch_url = $asset->fileName;
+          $file_size = $asset->fileSize;
+          $video_length = $asset->videoLength;
+          if($status == 'complete') {
+            _cdn2_update_video_asset_status($video_token, $preset_name, $status, $asset_fetch_url, $file_size, $video_length);
+          }
+        }
+      } else {
+        if($x < $max) {
+          $assets = cdn2_get_asset_status($row->nid);
+          foreach($assets as $asset) {
+            $video_token = $asset->videoToken;
+            $preset_name = $asset->preset->shortName;
+            $status = strtolower($asset->status);
+            $asset_fetch_url = $asset->fileName;
+            $file_size = $asset->fileSize;
+            $video_length = $asset->videoLength;
+            if($status == 'complete') {
+              _cdn2_update_video_asset_status($video_token, $preset_name, $status, $asset_fetch_url, $file_size, $video_length);
+            }
+          }
+        }
+      }
+      $x++;
+    }
+    watchdog('cdn2', 'Ran cron and updated '.$x.' entries');
+  }
+}
+
+function cdn2_workflow_settings() {
+  $form['workflow'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Workflow'),
+  );
+  $form['cron'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Cron'),
+  );
+  $form['workflow']['cdn2_workflow_settings'] = array(
+    '#type' => 'radios',
+    '#title' => t('Workflow Settings'),
+    '#default_value' => variable_get('cdn2_workflow_settings', 0),
+    '#options' => array('1' => t('Publish node after transcoding is completed'), '0' => t('Do not automatically publish')),
+  );
+  $form['cron']['cdn2_cron_enabled'] = array(
+    '#type' => 'checkbox',
+    '#title' => '<strong>'.t('Enabled Cron').'</strong>',
+    '#default_value' => variable_get('cdn2_cron_enabled', 0),
+    '#description' => t('If Enabled, CDN2 will attempt to update the status of videos per cron run. Use this if XMLRPC is not an option.'),
+  );
+  $form['cron']['cdn2_cron_entries'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Number of videos per cron run to process'),
+    '#size' => 10,
+    '#default_value' => variable_get('cdn2_cron_entries', 0),
+    '#description' => t('This will set the maximum number of videos(not individual assets) to update per cron run. Use 0 for unlimited.'),
+  );
+  return system_settings_form($form);
+}
+
+function cdn2_format_settings() {
+  $form = array();
+  $base_path = base_path();
+  $base_path = $base_path == '/' ? '' : $base_path;
+  drupal_add_css($base_path . drupal_get_path('module', 'cdn2') .'/cdn2.css');
+  drupal_add_js($base_path . '/misc/jquery.js');
+  drupal_add_js($base_path . drupal_get_path('module', 'cdn2') .'/js/jquery.selectboxes.pack.js');
+  drupal_add_js($base_path . drupal_get_path('module', 'cdn2') .'/js/cdn2_admin.js');
+  $form['cdn2_markup'] = array(
+    '#type' => 'markup',
+    '#value' => t('Select the video formats that users should be able to transcode upload video to.  Note that all formats checked below will be available users.  You can configure permissions for which users have access to view and upload to certain formats by visiting the ') . l('user roles', 'admin/user/roles') . t(' page.')
+  );
+  $form['cdn2_presets'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Transcode Presets'),
+    '#attributes' => array('id' => 'cdn2_presets_fieldset')
+  );
+  $presets = _cdn2_get_available_presets();
+  $options = array();
+  $selection_options = array();
+  $selection_options['Select...'] = 'Select...';
+  $cdn2_allowed_presets = variable_get('cdn2_allowed_presets', array());
+  $js_list = array();
+  $js_list[] = 'var aPresetList = new Array();';
+  if (count($presets)) {
+    foreach ($presets as $preset) {
+      if ($preset->fileFormat != 'JPEG') {
+        $options[$preset->shortName] = sprintf(
+          '<div style="display:inline;">%s<br/><div class="description">Dimensions: %s<br/>Video Codec: %s (%sbps)<br/>Audio Codec: %s (%sbps)</div></div>',
+          $preset->friendlyName,
+          $preset->videoDimensions,
+          $preset->videoCodec,
+          $preset->videoBitRate,
+          $preset->audioCodec,
+          $preset->audioBitrate);
+        $selection_options[$preset->shortName] = $preset->friendlyName;
+        $js_list[] = sprintf('aPresetList[\'%s\'] = \'%s\';', $preset->shortName, $preset->friendlyName);
+      }
+    }
+  }
+  $js_output .= implode("\n", $js_list) ."\n";
+  drupal_add_js($js_output, 'inline');
+
+  $form['cdn2_presets']['cdn2_allowed_presets'] = array(
+    '#type' => 'checkboxes',
+    '#title' => 'Allowed Presets',
+    '#default_value' => $cdn2_allowed_presets,
+    '#description' => t('Set the types of presets that are transcoded by default.  Items of this list may be exposed by allowing them permissions on the drupal permissions page.'),
+    '#options' => $options,
+    '#suffix' => '<div class="clear-block"></div>'
+  );
+
+  $top_keys = array_keys($selection_options);
+  $top_key = $top_keys[1];
+  $cdn2_default_preset = variable_get('cdn2_default_preset', $top_key);
+  $form['cdn2_presets']['cdn2_default_preset'] = array(
+    '#type' => 'select',
+    '#title' => t('Show format by default'),
+    '#default_value' => $cdn2_default_preset,
+    '#options' => $selection_options
+  );
+
+  $cdn2_flash_players = module_invoke_all('cdn2_player', 'flash');
+  //print_r($cdn2_flash_players);
+  $cdn2_flash_player_options = array();
+  if (count($cdn2_flash_players)) {
+    $form['cdn2_playback'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Playback Settings')
+    );
+
+    foreach ($cdn2_flash_players as $name => $player) {
+      $cdn2_flash_player_options[$name] = $player['title'] .' ('. l($player['source url'], $player['source url'], array('target' => '_new')) .')';
+    }
+
+    $form['cdn2_playback']['cdn2_flash_player'] = array(
+      '#type' => 'radios',
+      '#title' => t('Preferred Flash Player'),
+      '#options' => $cdn2_flash_player_options,
+      '#default_value' => variable_get('cdn2_flash_player', 'flowplayer')
+    );
+  }
+    $form['cdn2_display'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Display Settings')
+    );
+  $form['cdn2_display']['cdn2_hide_presets'] = array(
+    '#type' => 'checkbox',
+    '#default_value' => variable_get('cdn2_hide_presets', 0),
+    '#title' => t('Hide Presets on Form Upload iFrame'),
+  );
+  $output = system_settings_form($form);
+
+  return $output;
+}
+
+/*
+ * cdn2_settings
+ * Admin settings hook
+ *
+ * Form for the cdn2 module's settings.
+ */
+function cdn2_settings() {
+  $form['cdn2_uploader_endpoint'] = array(
+    '#type'          => 'textfield',
+    '#title'         => t('SOAP Endpoint'),
+    '#default_value' => variable_get('cdn2_uploader_endpoint', CDN2_DEFAULT_ENDPOINT),
+    '#required'      => TRUE,
+    '#description'   => t('The URL of the uploader\'s SOAP service'),
+  );
+  $form['cdn2_uploader_form'] = array(
+    '#type'          => 'textfield',
+    '#title'         => t('Upload form URL'),
+    '#default_value' => variable_get('cdn2_uploader_form', CDN2_DEFAULT_FORM),
+    '#required'      => TRUE,
+    '#description'   => t('The URL of the uploader\'s HTML form'),
+  );
+  $form['cdn2_client_id'] = array(
+    '#type'          => 'textfield',
+    '#title'         => t('Client ID'),
+    '#default_value' => variable_get('cdn2_client_id', ''),
+    '#required'      => TRUE,
+    '#description'   => t('Your client ID for the cdn2 service.'),
+  );
+
+  $form['cdn2_secret_key'] = array(
+    '#type'          => 'textfield',
+    '#title'         => t('Secret Key'),
+    '#default_value' => variable_get('cdn2_secret_key', ''),
+    '#required'      => TRUE,
+    '#description'   => t('The Secret Key provided to you for the cdn2 service.'),
+  );
+  cache_clear_all();
+
+  $output = system_settings_form($form);
+
+  return $output;
+}
+
+function _cdn2_filter_presets_by_user($account, $assoc_presets, $show_all) {
+  $user_presets = array();
+  $cdn2_allowed_presets = variable_get('cdn2_allowed_presets', array());
+  foreach ($assoc_presets as $short_name => $preset) {
+    if (user_access('transcode cdn2 video to '. $short_name, $account) && $cdn2_allowed_presets[$short_name] !== 0) {
+      $user_presets[$short_name] = $preset;
+    }
+  }
+  return $user_presets;
+}
+
+function _cdn2_get_available_presets($account = NULL, $show_all = TRUE) {
+  static $assoc_presets;
+  if (count($assoc_presets)) {
+    if ($account) {
+      return _cdn2_filter_presets_by_user($account, $assoc_presets);
+    }
+    return $assoc_presets;
+  }
+  $presets = cache_get('cdn2_presets')->data;
+  if (!$presets) {
+    $cdn2 = _cdn2_get_soap_client();
+    if (!$cdn2) {
+      return NULL;
+    }
+    $presets = $cdn2->getFormatPresets();
+    if ($presets['error']) {
+      drupal_set_message('Error occurred: '. $presets['error'], 'error');
+      return NULL;
+    } 
+  }
+  $assoc_presets = array();
+  foreach ($presets as $preset) {
+    $assoc_presets[$preset->shortName] = $preset;
+  }
+  cache_set('cdn2_presets', $assoc_presets, 'cache', time() + 86400);
+  if ($account) {
+    return _cdn2_filter_presets_by_user($account, $assoc_presets, $show_all);
+  }
+  return $assoc_presets;
+}
+
+function _cdn2_content_types() {
+  $type_list = array(0 => 'None');
+  $result = db_query("SELECT distinct(type_name) as name FROM {content_content_node_field_instance} ORDER BY type_name");
+  while ($row = db_fetch_object($result)) {
+    $type_list[$row->name] = $row->name;
+  }
+  return $type_list;
+}
+
+function theme_cdn2_progress_image_settings() {
+  $base_path = base_path();
+  $cdn2_progress_image = $base_path . drupal_get_path('module', 'cdn2') .'/images/progressbg_blue.gif';
+  $cdn2_progress_boximage = $base_path . drupal_get_path('module', 'cdn2') .'/images/progressbar.gif';
+  drupal_add_js(array('cdn2_bar_image' => $cdn2_progress_image, 'cdn2_box_image' => $cdn2_progress_boximage), 'setting');
+}
+
+function theme_cdn2_upload_form($token=0, $messages='') {
+  global $user, $theme, $base_url;
+
+  $nid = arg(3);
+  if(node_load($nid)) {
+     $redirect_url = url('cdn2/complete/'.$nid .'/'. $token, array('absolute' => TRUE)); 
+  }else {
+    $redirect_url = url('cdn2/complete/0/'.$token, array('absolute' => TRUE));
+  }
+  $action = variable_get('cdn2_uploader_form', CDN2_DEFAULT_FORM);
+  $jquery = '/misc/jquery.js';
+  $jquery_progressbar = '/'. drupal_get_path('module', 'cdn2') .'/js/jquery.progressbar.min.js';
+  $our_jquery = '/'. drupal_get_path('module', 'cdn2') .'/js/upload.js';
+  $themes = list_themes();
+  $themes = $themes[$theme];
+  $stylesheets = $themes->stylesheets['all'];
+  foreach($stylesheets as $sheet) {
+    $themes_styles_css .= '<style type="text/css" media="all">@import "'. $base_url.'/'.$sheet.'";</style>';
+  }
+  $style_css = "/". drupal_get_path('theme', $theme) ."/style.css";
+  $cdn2_css = '/'. drupal_get_path('module', 'cdn2') .'/cdn2.css';
+  $presets = _cdn2_get_available_presets($user);
+  $preset_inputs = '';
+  $i = 0;
+  foreach ($presets as $short_name => $preset) {
+    # Note: each input name here must be prefixed by 'selectedPresets' to be properly processed by the backend service
+    # If the backend service does not properly parse these args, it will not approve the selected formats for 
+    # processing, and no transcoding will occur.
+    $inputName = "selectedPresets" . $i;
+    if(variable_get('cdn2_hide_presets', 0)) {
+      $preset_inputs .= sprintf('<input type="hidden" name="%s" value="%s">', $inputName, $short_name, $preset->friendlyName);
+      $preset_display = 'style="display:none"';
+    }else {
+      $preset_inputs .= sprintf('<input type="checkbox" name="%s" value="%s" checked>%s<br/>', $inputName, $short_name, $preset->friendlyName);
+    }
+    $i++;
+  }
+  if (!is_integer($messages)) {
+    $new_messages = '<div class="error">' . $messages . '</div>' . "\n";
+  }
+  $base_path = base_path();
+  $base_path = $base_path == '/' ? '' : $base_path;
+  $output = <<<HTML
+<html class="js" lang="en" xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+  <head>
+    <title></title>
+    <style type="text/css" media="all">@import "$base_url/modules/node/node.css";</style>
+    <style type="text/css" media="all">@import "$base_url/modules/system/defaults.css";</style>
+    <style type="text/css" media="all">@import "$base_url/modules/system/system.css";</style>
+    $themes_styles_css
+    <style type="text/css" media="all">@import "$base_url$cdn2_css";</style>
+    <style>
+      #progress-info {
+        display: none;
+      }
+      body {
+        background: transparent;
+      }
+    </style>
+    <script type="text/javascript" language="Javascript">
+      var sCdn2BasePath = "$base_path";
+    </script>
+    <script type="text/javascript" src="$base_url$jquery"></script>
+    <script type="text/javascript" src="$base_url$jquery_progressbar"></script>
+    <script type="text/javascript" src="$base_url$our_jquery"></script>
+  </head>
+  <body>
+   <form id="upload" action="$action" method="post" enctype="multipart/form-data">
+     <div class="form-item">
+        <p><label>Upload a video: </label>
+        <input type="hidden" name="videoToken" id="videoToken" value="$token"/>
+        <input type="hidden" name="redirectUrl" value="$redirect_url"/>
+        <input type="file" name="file"/></p>
+        <p>
+          <label $preset_display>Show this file in the following formats:</label>
+          $preset_inputs
+        </p>
+            <div id="uploadbutton"><input type="submit" name="Send" value="Upload"/></div>
+          </div>
+        </form>
+        <div id="progress-info"><p>Your video is uploading.  Please do not submit your  form or navigate away from this page until it is complete.</p>
+          <b>Upload Progress:</b>
+        </div>
+        <div id="progress-bar"></div>
+  </body>
+</html>
+HTML;
+
+  print $output;
+}
+/**
+ * shows the upload form in an iframe
+ */
+function cdn2_upload_complete($nid, $video_token) {
+  global $theme, $base_url;
+  $error = $_REQUEST['e'];
+  $video_token = check_plain($video_token);
+  if ($error) {
+    // show the upload form again, with the error inline
+    //
+    print theme('cdn2_upload_form', $token, $messages);
+    return;
+  }
+
+  // save the video token in the database.  Note that it will not yet be associated with a node.  That's okay.
+  //
+  $query = "INSERT INTO {cdn2_video_node} (nid, video_token, is_submitted) values(%d, '%s', %d)";
+  db_query($query, $nid, $video_token, 1);  $base_path = base_path();
+  $base_path = $base_path == '/' ? '' : preg_replace('%/$%', '', $base_path);
+  $jquery = $base_path . '/misc/jquery.js';
+  $style_css = $base_path . "/". path_to_theme() ."/style.css";
+  $themes = list_themes();
+  $themes = $themes[$theme];
+  $stylesheets = $themes->stylesheets['all'];
+  foreach($stylesheets as $sheet) {
+    $themes_styles_css .= '<style type="text/css" media="all">@import "'. $base_url.'/'.$sheet.'";</style>';
+  }
+
+  $output = <<<HTML
+  <html class="js" lang="en" xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+  <head>
+    <title></title>
+    <style type="text/css" media="all">@import "$base_path/modules/node/node.css";</style>
+    <style type="text/css" media="all">@import "$base_path/modules/system/defaults.css";</style>
+    <style type="text/css" media="all">@import "$base_path/modules/system/system.css";</style>
+    $themes_styles_css
+    <script type="text/javascript" src="$jquery"></script>
+<p>Your video has been uploaded.  It can take some time to process, so be patient.</p>
+
+<p>Please make sure you <b>submit</b> this page before continuing, otherwise your video will be lost.</p>
+<script language="javascript">
+  $(document).ready(function(){
+      $(window.parent.document).find('input#edit-cdn2-is-submitted').val('true');
+      $(window.parent.document).find('input#edit-submit').removeAttr('disabled');
+      return;
+  });
+</script>
+</body>
+</html>
+HTML;
+
+  print $output;
+}
+
+function cdn2_get_upload_status($vidid) {
+    $cdn2 = _cdn2_get_soap_client();
+    // this PRINT_R is NOT FOR DEBUGGING.  Don't remove it, mmkay?
+    print_r($cdn2->getVideoUploadStatus($vidid));
+    $base_path = base_path();
+    $base_path = $base_path == '/' ? '' : $base_path;
+    print ','.$base_path;
+  
+}
+
+function _cdn2_get_soap_client() {
+  module_load_include('inc', 'cdn2', 'lib/libcdn2');
+
+  $site_token = variable_get('cdn2_client_id', 'workhabit');
+  $secret_key = variable_get('cdn2_secret_key', '');
+  $endpoint_url = variable_get('cdn2_uploader_endpoint', CDN2_DEFAULT_ENDPOINT);
+  try {
+    return new ErrorHandlingSoapClient(CDN2SoapClientImpl::getInstance($endpoint_url, $site_token, $secret_key));
+  } catch (Exception $e) {
+    drupal_set_message($e->getMessage(), 'error');
+    watchdog('cdn2', $e->getMessage());
+  } 
+  return NULL;
+}
+
+
+function _cdn2_get_content_types() {
+  $widget_info = cdn2_widget_info();
+  $content_types = array();
+  foreach ($widget_info as $key => $value) {
+    $query = "SELECT type_name FROM {content_node_field_instance} WHERE widget_type='%s'";
+    $result = db_query($query, $key);
+    while ($row = db_fetch_object($result)) {
+      $content_types[] = $row->type_name;
+    }
+  }
+  return $content_types;
+}
+
+function _cdn2_get_field_by_content_type($content_type) {
+  static $info;
+  if (isset($info) && is_array($info)) {
+    return $info;
+  }
+  module_load_include('inc', 'content', 'includes/content.crud');
+  $field_instance = content_field_instance_read(array('widget_type' => 'cdn2', 'type_name' => $content_type));
+  $db_info = content_database_info($field_instance[0]);
+  $info = array_merge($db_info, (array)$field_instance[0]);
+  return $info;
+}
+
+
+/**
+ * override so that we can clear cache, but not make the node non-editable
+ */
+function cdn2_node_save(&$node) {
+  node_invoke_nodeapi($node, 'presave');
+  global $user;
+
+  $node->is_new = FALSE;
+
+  // Apply filters to some default node fields:
+  if (empty($node->nid)) {
+    // Insert a new node.
+    $node->is_new = TRUE;
+
+    // When inserting a node, $node->log must be set because
+    // {node_revisions}.log does not (and cannot) have a default
+    // value.  If the user does not have permission to create
+    // revisions, however, the form will not contain an element for
+    // log so $node->log will be unset at this point.
+    if (!isset($node->log)) {
+      $node->log = '';
+    }
+
+    // For the same reasons, make sure we have $node->teaser and
+    // $node->body.  We should consider making these fields nullable
+    // in a future version since node types are not required to use them.
+    if (!isset($node->teaser)) {
+      $node->teaser = '';
+    }
+    if (!isset($node->body)) {
+      $node->body = '';
+    }
+  }
+  elseif (!empty($node->revision)) {
+    $node->old_vid = $node->vid;
+  }
+  else {
+    // When updating a node, avoid clobberring an existing log entry with an empty one.
+    if (empty($node->log)) {
+      unset($node->log);
+    }
+  }
+
+  // Set some required fields:
+  if (empty($node->created)) {
+    $node->created = time();
+  }
+  // The changed timestamp is always updated for bookkeeping purposes (revisions, searching, ...)
+/*
+  $node->changed = time();
+
+  $node->timestamp = time();
+*/
+  $node->format = isset($node->format) ? $node->format : FILTER_FORMAT_DEFAULT;
+
+  // Generate the node table query and the node_revisions table query.
+  if ($node->is_new) {
+    _node_save_revision($node, $user->uid);
+    drupal_write_record('node', $node);
+    db_query('UPDATE {node_revisions} SET nid = %d WHERE vid = %d', $node->nid, $node->vid);
+    $op = 'insert';
+  }
+  else {
+    drupal_write_record('node', $node, 'nid');
+    if (!empty($node->revision)) {
+      _node_save_revision($node, $user->uid);
+      db_query('UPDATE {node} SET vid = %d WHERE nid = %d', $node->vid, $node->nid);
+    }
+    else {
+      _node_save_revision($node, $user->uid, 'vid');
+    }
+    $op = 'update';
+  }
+
+  // Call the node specific callback (if any).
+  node_invoke($node, $op);
+  node_invoke_nodeapi($node, $op);
+
+  // Update the node access table for this node.
+  node_access_acquire_grants($node);
+
+  // Clear the page and block caches.
+  cache_clear_all();
+}
+
+
+

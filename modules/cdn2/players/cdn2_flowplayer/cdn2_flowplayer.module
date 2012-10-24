@@ -1,0 +1,130 @@
+<?php
+
+function cdn2_flowplayer_theme() {
+  return array(
+    'cdn2_flowplayer' => array(
+      'file' => 'cdn2_flowplayer.module',
+      'arguments' => array(
+        'node' => NULL,
+        'asset' => NULL,
+        'preset' => NULL,
+        'width' => NULL,
+        'height' => NULL
+      )
+    ),
+    'cdn2_flowplayer_get_js' => array(
+      'file' => 'cdn2_flowplayer.module',
+      'arguments' => array(
+        'node' => NULL,
+        'asset' => NULL,
+        'preset' => NULL,
+        'width' => NULL,
+        'height' => NULL
+      )
+    ),
+    'cdn2_flowplayer_analytics' => array(
+      'file' => 'cdn2_flowplayer.module',
+      'arguments' => array(
+        'node' => NULL,
+        'asset' => NULL,
+        'preset' => NULL,
+        'width' => NULL,
+        'height' => NULL
+      )
+    )
+  );
+}
+
+function cdn2_flowplayer_cdn2_player($type = '') {
+  switch ($type) {
+    case 'flash':
+      return array(
+        'flowplayer' => array(
+          'title' => t('Flow Player'),
+          'source url' => 'http://flowplayer.org/',
+          'theme function' => 'cdn2_flowplayer'
+        )
+      );
+  }
+}
+
+function theme_cdn2_flowplayer($node, $asset, $preset, $width, $height) {
+  static $check = TRUE;
+  if ($check && !module_exists('googleanalytics') && variable_get('cdn2_tracking_enabled', FALSE)) {
+    drupal_set_html_head('<script src="http://www.google-analytics.com/ga.js"></script>');
+    drupal_add_js('var pageTracker = _gat._getTracker("' . variable_get('cdn2_googleanalytics_account', '') . '");', 'inline');
+    $check = FALSE;
+  }
+  drupal_add_js(drupal_get_path('module', 'cdn2') .'/js/flashembed.min.js');
+  drupal_add_js(drupal_get_path('module', 'cdn2') .'/js/cdn2.js');
+  $player_path = base_path() . drupal_get_path('module', 'cdn2') .'/flow_player_dark.swf';
+  // code_standard: returned by web service as camelcase
+  $video_url = $asset['asset_fetch_url']; 
+  $splash_image_number = _cdn2_get_splash_image_number($node->nid);
+  switch($splash_image_number) {
+    case '0':
+        $suffix = "_thumb_001.jpg";
+    break;
+    case '10':
+        $suffix = "_thumb_010.jpg";
+    break;
+    default:
+      $suffix = '_thumb_00'. $splash_image_number .'.jpg';
+  }
+  $field_info = _cdn2_get_field_by_content_type($node->type);
+  $name = $field_info['field_name'];
+  $assets = $node->{$name}[0]['assets'];
+  $splash_image_file = '<img width='.$width.'" height="'. $height .'" src="'. preg_replace("%\.[^\.]*$%", $suffix, $video_url) .'">';
+
+  $flash_js = theme('cdn2_flowplayer_get_js',$node->nid, $preset->shortName, $player_path, $width, $height, $video_url, $splash_image_file);
+  $top = ($height/2)-(46/2);
+  $left = ($width/2)-(46/2);
+  drupal_add_js($flash_js, 'inline');
+  return sprintf('<div style="display:block;width:%dpx;height:%dpx;" class="video" id="flowplayer-%s-%s" href="%s"><div style="top: %dpx; left:%dpx" class="button_play"></div>%s</div>', $width, $height, $node->nid, $preset->shortName, $video_url, $top, $left, $splash_image_file);
+  return sprintf('<div id="flowplayer-%s-%s"></div>', $node->nid, $preset->shortName);
+}
+
+function theme_cdn2_flowplayer_get_js($nid, $preset_name, $player_path, $width, $height, $video_url, $splash_image_file) {
+  if (variable_get('cdn2_tracking_enabled', FALSE)) {
+    $tracking = theme('cdn2_flowplayer_analytics', $nid);
+    $js = "flowplayer('flowplayer-%s-%s','%s', $tracking)";
+  }
+  else {
+    $js = "flowplayer('flowplayer-%s-%s','%s')";
+  }
+  return sprintf($js, $nid, $preset_name, $player_path, $width, $height, $video_url, $splash_image_file);
+}
+
+
+function theme_cdn2_flowplayer_analytics($nid) {
+  global $base_url;
+  $node = node_load($nid);
+  $path = 'node/'. $node->nid;
+  $alias = '/'. drupal_get_path_alias($path);
+  $tracking = '
+    { clip: 
+        {   // track start event for this clip
+            onStart: function(clip) {             
+                pageTracker._trackEvent("Videos", "Play", "'.$alias.'");         
+            }, 
+            // track pause event for this clip. time (in seconds) is also tracked        
+            onPause: function(clip) {             
+                pageTracker._trackEvent("Videos", "Pause", "'.$alias.'", parseInt(this.getTime()));         
+            },                 
+            // track stop event for this clip. time is also tracked         
+            onStop: function(clip) {             
+                pageTracker._trackEvent("Videos", "Stop", "'.$alias.'", parseInt(this.getTime())); 
+            },                  
+            // track finish event for this clip         
+            onFinish: function(clip) {             
+                pageTracker._trackEvent("Videos", "Finish", "'.$alias.'");         
+            }
+        }, 
+   plugins: { 
+        controls: { 
+            stop: true     
+        } 
+    }           
+    }';
+  return $tracking;
+}

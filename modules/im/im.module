@@ -1,0 +1,1319 @@
+<?php
+// $Id: im.module,v 1.9.2.24 2010/03/29 03:09:08 pahariwalla Exp $
+
+/**
+ * @file
+ * A simple and self contained Instant Messaging module that uses User Relationships modules
+ * to define list of users that can IM with you
+ */
+
+
+/**
+ * Implementation of hook_perm().
+ */
+function im_perm() {
+  return array('IM talk', 'administer IM', 'Moderate a Chatroom');
+}
+
+/**
+ * Implemenation of hook_menu().
+ */
+function im_menu() {
+  $items['im/delete_msg'] = array(
+    'page callback' => 'im_delete_msg',
+    'access arguments' => array('Moderate a Chatroom'),
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['im/set_speaker_state'] = array(
+    'page callback' => 'im_set_speaker_state',
+    'access arguments' => array('IM talk'),
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['im/friendlist'] = array(
+    'page callback' => 'im_refresh_friendlist',
+    'access arguments' => array('IM talk'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['im/send_msg'] = array(
+    'page callback' => 'im_send_msg',
+    'access arguments' => array('IM talk'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['im/get_new_messages'] = array(
+    'page callback' => 'im_get_new_messages',
+    'access arguments' => array('IM talk'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['im/get_all_messages'] = array(
+    'page callback' => 'im_get_all_messages',
+    'access arguments' => array('IM talk'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/settings/IM'] = array(
+    'title' => t('IM settings'),
+    'description' => t('Confugure IM'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('im_settings'),
+    'access arguments' => array('administer IM'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['im/js_open_convo'] = array(
+    'page callback' => 'im_js_open_convo',
+    'access arguments' => array('IM talk'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_user().
+ */
+function im_user($op, &$edit, &$account, $category = NULL) {
+  switch($op) {
+    case 'categories':
+//     if (user_access('IM talk', $user, FALSE) && _has_audio() && variable_get('im_allow_user_alert_settings', 1) == 1) {
+//        $data[] = array(
+//          'name' => "im_sound",
+//          'title' => t("IM Alert Settings"),
+//          'weight' => 3,
+//          'access arguments' => array(1),
+//        );
+//        return $data;
+//     }
+      break;
+    case 'form':
+      global $user;
+      if (user_access('IM talk', $user, FALSE) && _has_audio() && $category=='account' && variable_get('im_allow_user_alert_settings', 1) == 1) {
+       return im_user_settings_fields();
+      }
+      break;
+    case 'logout':
+      _cleanup();
+      break;
+    case 'login':
+      $chatrooms = im_get_chatrooms();
+      foreach ($chatrooms as $chatroom) {
+        if ($chatroom['default'] == 1) {
+            $_SESSION['im_other_uid'] = $chatroom['uid'];
+            $_SESSION['im_other_name'] = $chatroom['name'];
+        }
+      }
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_cron().
+ */
+function im_cron() {
+  _cleanup();  
+}
+
+
+/**
+ * Implementation of hook_block().
+ */
+function im_block($op = 'list', $delta = 0, $edit = array()) {
+  if ($op == 'list') {
+    $blocks['im_friend_picker'] = array(
+      'info' => t('IM Friend Picker'),
+      'cache' => BLOCK_NO_CACHE,
+      'region' => 'left',
+      'status' => TRUE
+    );
+    $blocks['im_console'] = array(
+      'info' => t('IM console'),
+      'region' => 'left',
+      'cache' => BLOCK_NO_CACHE,
+      'status' => TRUE
+    );
+    return $blocks;
+  }
+  else if ($op == 'view') {
+    switch ($delta) {
+      case 'im_friend_picker':
+        $friendlist_array = im_friendlist_array();
+        $block = array(
+          'subject' => t(''),
+          'content' => im_make_block_friendlist($friendlist_array)
+        );
+        break;
+      case 'im_console':
+        $block = array(
+          'subject' => t(''),
+          'content' => im_make_block_console()
+        );
+        break;
+      case 2:
+        //temporary DEMO site list of users
+        //TODO Kill this function and block delta=2
+        $block = array(
+          'subject' => t('Dev list of users'),
+          'content' => dev_im_make_userlist()
+        );
+        break;
+    }
+    return $block;
+  }
+}
+
+
+/**
+ *Implementation of hook_theme().
+ */
+function im_theme() {
+  $themes = array(
+    'im_friendlist' => array('arguments' => array('friends')),
+    'im_console' => array('arguments' => array('other_name')),
+    'im_msgs' => array('arguments' => array('msgs', 'other_name')),
+  );
+  return $themes;
+}
+
+//called from ajax, returns json
+function im_get_new_messages($other_uid) {
+  global $user;
+  $other_name = db_result(db_query("SELECT name from {users} WHERE uid=%d", $other_uid));
+  //SESSION used to track most recent converastion as well as other user name for performance
+  $_SESSION['im_other_uid'] = $other_uid;
+  $_SESSION['im_other_name'] = $other_name;
+
+  $uid = $user->uid;
+  $date_time = date('Y-m-d H:i:s');
+
+  if ($other_uid < -1) { //chat room 
+    $query = sprintf(
+      "SELECT * FROM {im_msg}
+      WHERE received_time = '0000-00-00 00:00:00'
+      AND ruid = %d
+      AND suid != %d"
+      , $other_uid, $uid);
+  }
+  else {
+    $query = sprintf(
+      "SELECT * FROM {im_msg}
+      WHERE received_time = '0000-00-00 00:00:00'
+      AND ruid = %d
+      AND suid = %d "
+      , $uid, $other_uid);
+  }
+  
+
+  $results = db_query($query);
+  $msg = array();
+  while ($result = db_fetch_array($results)) {
+    $msg[] = array(
+      'mid' => $result['mid'],
+      'other_name' => $other_name,
+      'suid' => $result['suid'],
+      'ruid' => $result['ruid'],
+      'sname' => $result['sname'],
+      'rname' => $result['rname'],
+      'msg' => $result['msg'],
+      'sent_time' => $result['sent_time'],
+    );
+    db_query("UPDATE {im_msg} SET received_time ='%s' WHERE mid = %d", $date_time, $result['mid']);
+  }
+  
+  if ($msg) {
+    if (!empty($_POST['js'])) {
+       drupal_json(array(
+        'status' => 'got data',
+        'msgs' => theme('im_msgs', $msg, $other_name),
+        )
+      );
+      exit();
+    }
+  }
+  else {
+    if (!empty($_POST['js'])) {
+      drupal_json(array(
+        'status' => 'no data',
+        'msgs' => ''
+        )
+      );
+      exit();
+    }
+  }
+}
+
+
+//called from ajax, returns json
+//TODO generalize and combine with get_new_massages ... maybe
+function im_get_all_messages($other_uid) {
+  global $user;
+  $uid = $user->uid;
+  
+  $other_name = db_result(db_query("SELECT name from {users} WHERE uid=%d", $other_uid));
+
+  $_SESSION['im_other_uid'] = $other_uid;
+  $_SESSION['im_other_name'] = $other_name;
+
+
+  if ($other_uid < -1) { // this is a chat room 
+    $query = sprintf(
+      "SELECT * FROM {im_msg}
+      WHERE (ruid = %d) ORDER BY sent_time"
+      ,$other_uid);
+  }
+  else {
+    $query = sprintf(
+      "SELECT * FROM {im_msg}
+      WHERE (ruid = %d AND suid = %d)
+      OR (ruid = %d AND suid = %d) ORDER BY sent_time", $uid, $other_uid, $other_uid, $uid);
+  }
+  
+  $results = db_query($query);
+  
+  while ($result = db_fetch_array($results)) {
+    $msgs[] = array(
+      'mid' => $result['mid'],
+      'suid' => $result['suid'],
+      'ruid' => $result['ruid'],
+      'sname' => $result['sname'],
+      'rname' => $result['rname'],
+      'msg' => $result['msg'],
+      'sent_time' => $result['sent_time'],
+    );
+    if ($result['ruid'] == $uid) {
+      $mark_these_msgs .= ','. $result['mid'];
+    }
+  }
+  if ($mark_these_msgs) {
+    $mark_these_msgs = substr($mark_these_msgs, 1); //strip first comma
+    $date_time = date('Y-m-d H:i:s');
+    db_query("UPDATE {im_msg} SET received_time ='%s' WHERE mid IN (%s)", $date_time, $mark_these_msgs);
+  }
+
+  if ($msgs) {
+    if (!empty($_POST['js'])) {
+      drupal_json(array(
+        'status' => 'got data',
+        'msgs' => theme('im_msgs', $msgs, $other_name),
+        )
+      );
+      exit();
+    }
+  }
+  else {
+    if (!empty($_POST['js'])) {
+      drupal_json(array(
+        'status' => 'no data',
+        )
+      );
+      exit();
+    }
+  } 
+}
+
+function im_delete_msg() {
+  $result = db_query("SELECT sname, msg from im_msg WHERE mid=%d", arg(2));
+  $data = db_fetch_array($result);
+  $output = sprintf("Deleted message '%s' - by %s", $data['msg'], $data['sname']);
+  db_query("DELETE FROM im_msg WHERE mid=%d", arg(2));
+  drupal_set_message ($output);
+  drupal_goto(referer_uri());
+}
+
+//called from ajax via POST and chucks msg into DB
+function im_send_msg($suid, $ruid, $themessage = '') {
+  global $user;
+  $date_time = date('Y-m-d H:i:s');
+
+  if ($themessage) { // recursive call only !!
+    $msg = $themessage;
+    $my_name =  _im_bot_name();
+    $other_name = $user->name;;
+  }
+  else {
+    $msg = $_GET['msg'];  
+    $_SESSION['im_other_uid'] = $ruid;
+    //if (_im_bot_name()) { // practically assumed because no one else calls this function with msg arg
+    if ($ruid==-1) { // practically assumed because no one else calls this function with msg arg
+      // bot sends it's message as soon as it get's one 
+      $msgout = dialectic_replace($msg, variable_get('im_bot_friend', ''));
+      im_send_msg(-1, $suid, $msgout );
+    }
+    $my_name =  $user->name;
+    $other_name = db_result(db_query("SELECT name from {users} WHERE uid=%d", $ruid));
+  }
+  
+  db_query("INSERT INTO {im_msg}
+    (suid, ruid, sname, rname, msg, sent_time, received_time) VALUES
+    (%d, %d, '%s', '%s', '%s', '%s', '%s' )",
+    $suid, $ruid, $my_name, $other_name, $msg, $date_time, '0000-00-00 00:00:00');
+  
+  
+  if (!empty($_POST['js'])) {
+    drupal_json(array(
+      'status' => 'record added',
+      'ruid' => $ruid,
+      'suid' => $suid,
+      'other_uid' => $ruid,
+      'my_uid' => $suid,
+      )
+    );
+    exit();
+  }  
+}
+
+//build IM console form (command line and message display)
+function im_console_form() {
+  global $user;
+
+  $form['im-status'] = array(
+    '#type' => 'hidden',
+    '#title' => t('status'),
+    '#cols' => 30,
+    '#rows' => 6,
+    '#default_value' => '',
+    //'#description' => t('what was said'),
+  );
+  
+  if (variable_get('im_text_entry_type', 'textfield') == 'textfield') {
+    $form['im-console-commandline'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Type here'),
+      '#default_value' => '',
+      '#maxlength' => variable_get('im_command_line_maxlength', 255),
+      '#size' => variable_get('im_command_line_size', 20),
+    );
+  }
+  else {
+    $form['im-console-commandline'] = array(
+      '#type' => 'textarea',
+      '#title' => t('Type here'),
+      '#default_value' => '',
+      '#rows' => variable_get('im_textarea_rows', 1),
+      '#cols' => variable_get('im_textarea_cols', 20),
+    );
+  }
+
+  $form['im-my-uid'] = array(
+    '#title' => 'My UID',
+    '#type' => 'hidden',
+    '#size' => 5,
+    '#default_value' => $user->uid,
+  );
+  $form['im-other-uid'] = array(
+    '#title' => 'Other UID',
+    '#type' => 'hidden',
+    '#size' => 5,
+    '#default_value' => $_SESSION['im_other_uid'] ,
+  );
+   $form['im-other-name'] = array(
+    '#title' => 'Other Name',
+    '#type' => 'hidden',
+    '#size' => 5,
+    '#default_value' => $_SESSION['im_other_name'] ,
+  );
+ return $form;
+}
+
+
+
+/* create the UI for IM console (display and command line)
+*/
+function im_make_block_console() {
+  global $base_path;
+  global $user;
+
+  $im_settings = array(
+    'refresh_rate' => variable_get('im_refresh_rate', 2000),
+    'im_refresh_rate_inactive_threshold' => variable_get('im_refresh_rate_inactive_threshold', 10000),
+    'im_refresh_rate_inactive' => variable_get('im_refresh_rate_inactive', 5000),
+    'drupal_root' =>  $_SERVER['DOCUMENT_ROOT'],
+    'anymsgs_url' =>  $anymsgs_url,
+    );
+  
+  if (_has_audio()) {
+    $im_settings['has_audio'] = '1';
+    $im_settings['msg_in_mp3']  = $base_path . drupal_get_path('module', 'im') . '/msg_in.mp3';
+    $events = im_events();
+    foreach ($events as $event) {
+      $im_settings[$event['name']] = $base_path . $event['sound_file'];  
+    }
+  }
+
+  if (user_access('IM talk', $user, FALSE)) {
+    $im_settings['has_perms'] = 1;
+  }
+  else {
+    $im_settings['has_perms'] = 0;    
+  }
+  
+  drupal_add_js(array('im_module' => $im_settings), 'setting');
+  drupal_add_js(drupal_get_path('module', 'im') .'/im.js');
+  drupal_add_css(drupal_get_path('module', 'im') .'/im.css');
+  
+  $output = theme('im_console', $_SESSION['im_other_name']);
+  return $output ;
+}
+
+
+/* create the UI for selecting from list of online friends
+*/
+function im_make_block_friendlist($friendlist_array) {
+  $im_settings = array(
+    'friendlist_refresh_rate' => variable_get('im_friendlist_refresh_rate', 10000),
+    'friendlist_array' => drupal_to_js(unserialize($_SESSION['im_friendlist_array'])),
+  );
+  drupal_add_js(array('im_module' => $im_settings), 'setting');
+  $online_friends = $friendlist_array;
+  return theme('im_friendlist', $online_friends);
+}
+
+function im_friendlist_array() {
+  $online_friends = _get_online_friends();
+           
+  //get bot
+  if (variable_get('im_bot_friend', 'none') != 'none') {
+    $online_friends[-1] = array('uid' => -1, 'name' => _im_bot_name(), 'waiters' => 0);
+  }
+    
+  //get chat rooms
+  $chatrooms = im_get_chatrooms();
+  if ($chatrooms) {
+	  foreach ($chatrooms as $chatroom) {
+	    $temp[$chatroom['uid']] = array ('uid' => $chatroom['uid'], 'name' => $chatroom['user'], 'waiters' => 0);
+	  }
+    $online_friends = array_merge ($temp, $online_friends);
+	}
+  //$online_friends = array_merge ($chat_rooms, $online_friends);
+  //expose this so other modules and overide the list of friends
+  return $online_friends;  
+}
+
+
+function im_get_chatrooms() {
+  $settings = variable_get('im_chat_rooms','');
+  if (!$settings) {
+    return array();;
+  }
+  $chatrooms = array();
+  $setting_lines = explode("\n", $settings);
+  foreach ($setting_lines as $setting_line) {
+    $parmstring = explode(";", $setting_line);
+    foreach($parmstring as $parmpiece) {
+      $parmpieces = explode("=", $parmpiece); 
+      $parm_name = $parmpieces[0];
+      $parm_value = $parmpieces[1];
+      $parms[$parm_name] = $parm_value;
+    }
+    $parms['waiters'] = 0;
+    
+    $pieces = explode("=", $setting_line);
+    if ($pieces[1]) {
+      $username = trim($pieces[0]);
+      $roomname = trim($pieces[1]);
+    }
+    else {
+      $username = trim($setting_line);
+      $roomname = $username;
+    }      
+    $username = $parms['user'];
+    $q = sprintf("SELECT uid FROM {users} WHERE name = '%s'", $username);
+    if ($uid = db_result(db_query($q))) {
+      $parms['uid'] = $uid;
+      $uid = $uid * -1; // cheapo trick to signify this user is actually a chat room
+      $parms['uid'] = $uid;
+      //$chatrooms[$uid] = array('uid' => $uid, 'name' => $roomname, 'waiters' => 0);  
+      $chatrooms[$uid] = $parms;  
+    }
+  }
+  return $chatrooms;
+}
+
+
+//called from ajax, returns themed html
+function im_refresh_friendlist() {
+  $friendlist_array = im_friendlist_array();
+  $_SESSION['im_friendlist_array'] = serialize($friendlist_array);
+  $friendlist = im_make_block_friendlist($friendlist_array);
+  if (!empty($_POST['js'])) {
+    drupal_json(array(
+      'status' => 'got data',
+      'friendlist_array' => $friendlist_array,
+      'friendlist' => $friendlist,
+      )
+    );
+    exit();
+  }
+
+}
+
+
+//themes Friend List
+function theme_im_friendlist($online_friends) {
+  global $user;
+  $uid = $user->uid;
+  drupal_add_js(drupal_get_path('module', 'im') .'/im.js');
+  drupal_add_css(drupal_get_path('module', 'im') .'/im.css');
+  
+  $output .= '<div id="im-friendlist" class="im-friendlist">';
+  $output .= '<div id="im-friendlist-friends" class="im-friends">';
+  if ($uid == 0) {
+    $output .= t('Please ') . l(t('Log in'), 'user/login') . ' ' . t('to use Instant Messenger');
+  }
+  else {
+    if (sizeof($online_friends) > 0) {
+      $output .= t('Talk to: ');
+      foreach ($online_friends as $key => $friend) {
+        if ($friend['waiters'] > 0) { 
+          $text = '('. $friend['waiters'] .') ';
+        }
+        else {
+          $text = '';
+        }
+        $text .= $friend['name'];
+        $onClick = 'click_on_friend(' . $friend['uid'] . ',\'' . $friend['name'] . '\'); return (false);';
+        $output .= l(
+          $text, '', array(
+            'attributes' => array('class' => 'im-link', 'id' => 'im-uid-'.  $friend['uid'], 'onClick' =>  $onClick)
+          )
+        );        
+        $output .= ' | ';
+      }
+      if (variable_get('im_show_talk_to_no_one', 1) == 1) {
+        $onClick = 'click_on_friend(' . '0' . ',\'' . t('No One') . '\'); return (false);';
+        $output .= l(t('No One'), '', array(
+            'attributes' => array('class' => 'im-link', 'id' => 'im-uid-0', 'onClick' =>  $onClick)
+          )
+        ); 
+      }
+      else {
+        $output = substr($output, 0, sizeof($output) -3);
+      }
+    }
+    else {
+      $output .= variable_get('im_no_one_online', 'Hey, where is everbody?') .' <a id="im-refresh-friendlist" href="#" onClick="getFriendList(); return (false);">refresh</a>';
+    }
+  }
+  $output .= '</div>'; // close div.friends
+  $output .= '</div>'; // close div.im-friendlist
+  return $output;  
+}
+
+//themes individual messages 
+function theme_im_msgs($msgs, $other_name) {
+  global $user;
+  $uid = $user->uid;
+  if (sizeof($msgs) < 1) {
+    return;
+  }
+  
+	
+  $output = '';
+  if (sizeof($msgs) > 0) {
+  	
+    $is_user_chatroom_admin = im_is_user_chatroom_admin($msgs[0]['ruid'], $user->uid);
+    foreach ($msgs as $key => $msg) {
+      if ($is_user_chatroom_admin && user_access('Moderate a Chatroom', $user)) {
+        $output .= l('[x]', 'im/delete_msg/' . $msg['mid']);
+      }     
+      $output .= '<span class="im-console-msg-name">' ;
+      
+      if ($user->uid == $msg['suid']) {
+        $output .= t('Me') .': </span>';  
+        $output .= '<span class="im-console-my-msgtext">';
+      }
+      else {
+        $output .= $msg['sname'] .': </span>';  
+        $output .= '<span class="im-console-other-msgtext">';
+      }
+      $output .= check_plain($msg['msg']);
+      $output .= '</span><br/>';
+    }
+  }
+  return $output;
+}
+
+function im_get_speaker_state() {
+  if (isset($_SESSION['im_speaker_state'])) {
+    $speaker_state = $_SESSION['im_speaker_state'];
+  }
+  else {
+    if (isset($user->im_speaker_state)) {
+      $speaker_state = $user->im_speaker_state;
+    }
+    else {
+      $speaker_state = 1;
+    }
+  }  
+  return $speaker_state;
+}
+
+function im_set_speaker_state($speaker_state) {
+  global $user;
+  $_SESSION['im_speaker_state'] = $speaker_state;
+  user_save($user, array('im_speaker_state' => $speaker_state));
+}
+
+//themes message display console
+function theme_im_console($other_name) {
+  global $base_path;
+  global $user;
+  $uid = $user->uid;
+  $module_path = $base_path . drupal_get_path('module', 'im');
+  
+  $audio_player = $module_path . '/player_mp3_js.swf';
+  
+  if (_has_audio()) {
+    $output .=
+<<<FLASH_PLAYER
+    <object class="playerpreview" id="im_flash_player" type="application/x-shockwave-flash" data="$audio_player" width="1" height="1">
+        <param name="movie" value="$audio_player" />
+        <param name="AllowScriptAccess" value="always" />
+        <param name="FlashVars" value="listener=im_flash_player_listener&amp;interval=500000" />
+    </object>
+FLASH_PLAYER;
+  }
+
+  $output .= '<div id="im-console-wrapper" class="im-console-wrapper">';
+  $output .=    '<div id="im-console-caption" class="im-console-caption">';
+  $speaker_state = im_get_speaker_state();
+
+  $events = im_events();
+  $sound_files_selected = FALSE;
+   foreach ($events as $event) {
+    if($event['sound_file'] != 'none') {
+      $sound_files_selected = TRUE;
+    }  
+  }
+
+
+  if ($speaker_state == 1) {
+    $on_display = 'block';
+    $off_display = 'none';
+  }
+  else {
+    $on_display = 'none';
+    $off_display = 'block';
+  }
+
+  if (_has_audio() && $sound_files_selected) {
+    $output .= '<img id="im-console-speaker-icon-on" class="im-console-speaker-icon" style="display:' . $on_display .'"  src="' . $module_path . '/audio-volume-high.png">';
+    $output .= '<img id="im-console-speaker-icon-off" class="im-console-speaker-icon" style="display:' . $off_display .'"  src="' . $module_path . '/audio-volume-muted.png">';
+  }
+  
+  $output .=  t('Talking to: ') .'<span id="im-console-caption-name" class="im-console-caption-name">';
+  $output .=  ($other_name ? $other_name : 'no one') ;
+  $output .=  '</span>';
+  $output .= '</div>'; // close caption
+  
+  $output .= '<div id="im-console-msgs" class="im-console-msgs"></div>'; 
+  $output .= drupal_get_form('im_console_form');
+
+  $output .= '</div>'; // close wrapper
+  return $output;  
+}
+
+
+//Deletes messages from DB table - some work needed here
+//Probably should put a count and time limits to message persistance.
+//Called from hook_user (logout) and cron
+function _cleanup() {
+  //should not really ever happen, but in case of program error ... 
+  db_query("DELETE FROM {im_msg} WHERE ruid=0");
+
+  //normal chats , i.e. not chat rooms
+  $online_users = _get_online_users();
+  $online = array();
+  $online = _get_uids_in_session_table();
+  $query = "SELECT DISTINCT suid, ruid FROM {im_msg} WHERE ruid > -1"; //exclude chat rooms
+  $results = db_query($query);
+  while ($result = db_fetch_array($results)) {
+    if (in_array($result['suid'], $online)==False) {
+      if (in_array($result['ruid'], $online) == False) {
+        db_query("DELETE FROM {im_msg}
+          WHERE suid = %d
+          AND ruid = %d
+          AND received_time != '0000-00-00 00:00:00'",
+          $result['suid'], $result['ruid'] );
+      }
+    }
+  }
+
+
+}
+
+function _cleanup_rooms() {
+  //should not really ever happen, but in case of program error ... 
+  db_query("DELETE FROM {im_msg} WHERE ruid=0");
+
+  $stale = variable_get('im_chatroom_stale_msg_threshold', 5200);
+  
+  if ($stale) {
+    $min_date = time() - ($stale * 60);
+    $sql_min_date = date('Y-m-d H:i:s',$min_date);
+    $q = sprintf("DELETE FROM {im_msg} WHERE ruid < -1 AND sent_time < '%s'", $sql_min_date);
+    db_query($q);
+  }
+
+  $max_recs = variable_get('im_chatroom_max_msgs_stored', 100);
+  
+  if ($max_recs) {
+    $q = sprintf("SELECT mid FROM {im_msg} ORDER BY mid DESC LIMIT %d, 1", $max_recs);
+    $min_id = db_result(db_query($q));
+    if ($min_id) {
+      $q = sprintf("DELETE FROM {im_msg} WHERE mid <= %d", $min_id);
+      db_query($q);
+    }
+  }
+  
+}
+
+function _get_online_friends() {
+  global $user;
+  $uid = $user->uid;
+  $waiters = _get_waiters($uid, -1); /// count all unread msgs by suid
+  
+  $friends = _get_friends($uid);
+
+  $online_users = _get_online_users();  
+  $online_friends = array();
+
+  if ($online_users) {
+    foreach($friends as $friend_uid) {
+      if (array_key_exists($friend_uid, $online_users) && $friend_uid != $uid) {
+        if (array_key_exists($friend_uid, $waiters)) {
+          $num_waiting = $waiters[$friend_uid]['num_waiting'];
+        }
+        else {
+          $num_waiting = 0;
+        }
+        $online_friends[$friend_uid] = array('uid' => $friend_uid, 'name' => $online_users[$friend_uid]['name'], 'waiters' => $num_waiting);
+      }
+    }
+  }
+  return $online_friends;
+}
+
+function _get_uids_in_session_table() {
+  $uids_in_sessions_table = array();
+  $results = db_query("SELECT uid FROM {sessions}");
+  while ($result = db_fetch_array($results)) {
+    $uids_in_sessions_table[] = $result['uid'];
+  }
+  return $uids_in_sessions_table;
+}
+
+function _get_online_users() {
+
+  if(variable_get("im_online_users_threshold", 0) == 0) {
+    $authenticated_users = db_query("
+      SELECT DISTINCT u.uid, u.name
+      FROM {users} u
+      INNER JOIN {users_roles} ur on ur.uid = u.uid
+      INNER JOIN {permission} p on p.rid = ur.rid 
+      WHERE p.perm like '%IM Talk%'
+      ORDER BY u.name");
+    while ($account = db_fetch_object($authenticated_users)) {
+      $items[$account->uid] = array('uid' => $account->uid, 'name' => $account->name);
+    }
+    return $items;
+  }
+
+  if (user_access('access content')) {
+    // Count users with activity in the past defined period.
+    $interval= time() - variable_get('im_online_users_threshold', 900); // 15 minutes
+    // Perform database queries to gather online user lists.  We use s.timestamp
+    // rather than u.access because it is much faster.
+    $authenticated_users = db_query('
+      SELECT DISTINCT u.uid, u.name, s.timestamp
+      FROM {users} u
+      INNER JOIN {sessions} s
+      ON u.uid = s.uid
+      WHERE s.timestamp >= %d AND s.uid > 0
+      ORDER BY s.timestamp DESC', $interval);
+    while ($account = db_fetch_object($authenticated_users)) {
+      $items[$account->uid] = array('uid' => $account->uid, 'name' => $account->name);
+    }
+  return $items;
+	}
+}
+
+function _get_friends($uid) {
+  global $user;
+  $uid = $user->uid;
+  $friends = array();
+  $temp = variable_get("im_friend_source", '');
+  $splitpos = strpos($temp, "_");
+  $source_type = substr($temp, 0, $splitpos);
+  $source_id = substr($temp, $splitpos +1);
+  switch ($source_type) {
+    case "UR":
+      if (module_exists('user_relationships_api')) {
+        $results = db_query("SELECT u.uid, u.name FROM {user_relationships} ur INNER JOIN {users} u ON u.uid = ur.requestee_id WHERE ur.approved = 1 AND rtid = %d AND requester_id = %d", $source_id, $uid);
+        while ($result = db_fetch_array($results)) {
+          //$friends[$result['uid']] = array(
+          //  'uid' => $result['uid'],
+          //  'name' => $result['name']
+          //);
+          $friends[] = $result['uid'];
+        }
+      }
+      else {
+        drupal_set_message(t("You have selected a User Relationship Type as the source for your IM Friends but the User Relationship module no longer exists"), 'error', FALSE);
+      }
+      break;
+    case "V":
+      if (module_exists('views')) {
+        $view = views_get_view($source_id);
+        if (is_object($view)) {
+          $view->init_display();
+          $view->pre_execute();
+          $view->execute();
+          $results = $view->result;
+          //dpr($results);
+          foreach ($results as $result) {
+            if ($uid != $result->uid ) {
+              //$friends[$result->uid] = array(
+              //  'uid' => $result->uid,
+              //  'name' => $result->users_name
+              //);
+              $friends[] = $result->uid;
+            }
+          }
+        }
+        else {
+          drupal_set_message(t("You have selected the View '@source_id' as the source for your IM Friends but the View has been deleted", array('@source_id' => $source_id)), 'error', FALSE);
+        }
+      }
+      else {
+        drupal_set_message(t("You have selected a View as the source for your IM Friends but the View module no longer exists"), 'error', FALSE);
+      }
+      break;
+    case 'HOOK':
+      $friends = array_unique(module_invoke($source_id, 'im_friends'));
+      $msg = "Error: Function " . $source_id . "_im_friends() in module ' . $source_id . ' must return an array of integers, each prepresenting a uid";
+      $msg2 = "It is returning: " . print_r($friends, true);
+      if (!is_array($friends)) {
+        drupal_set_message($msg, 'error');
+        drupal_set_message($msg2, 'error');
+        return array();
+      }
+      foreach ($friends as $uid) {
+        if (!is_numeric($uid)) {
+          drupal_set_message($msg, 'error');
+          drupal_set_message($msg2, 'error');
+          return array();
+        }
+      }
+      break;
+    default: // all users
+      $results = db_query("SELECT uid, name FROM {users} WHERE uid > 0 AND status = 1");
+      while ($result = db_fetch_array($results)) {
+        $friends[] = $result['uid'];
+      }
+    break;
+  }
+  return $friends;
+}
+
+
+// im_sound
+function im_user_settings_fields() {
+  global $user;
+  $form = array();
+  im_event_alert_settings($user->uid, $form);
+  $form['im_event_alerts']['#collapsed'] = FALSE;
+  return $form;
+}
+
+
+//IM configuration setting form 
+function im_settings() {
+  drupal_add_js(drupal_get_path('module', 'im') .'/im_settings.js');
+  
+  $form = array();
+  $options = array();
+  $options['_ALLUSERS'] = "All Users";
+
+  $hookers = module_implements('im_friends');
+  if ($hookers) {
+    foreach ($hookers as $hooker) {
+      $options['HOOK_' . $hooker] = 'Function ' . $hooker . '_im_friends';
+    }
+  }
+  
+  if (module_exists('user_relationships_api')) {
+    $user_relationship_types = user_relationships_types_load();
+    foreach ($user_relationship_types as $user_realtionship_type) {
+      $options['UR_' . $user_realtionship_type->rtid] = 'User Relationship Type - ' . $user_realtionship_type->name;
+    }
+  }
+  
+  if (module_exists('views')) {
+    $views = views_get_all_views();
+    foreach ($views as $view) {
+      if ($view->base_table == 'users') {
+        $options['V_' . $view->name] = 'View - ' . $view->name;
+      }
+    }
+  }
+  
+  
+  $form['im_friend_picker_options'] = array(
+   '#type' => 'fieldset',
+   '#tree' => false,
+   '#title' => t('Friend Picker options'),
+   '#collapsible' => TRUE,
+   '#collapsed' => FALSE,
+   //'#weight' => -99,
+   '#description' => t("How and when to refresh the list of friends in the Friend Picker"),
+  );
+  
+  $form['im_friend_picker_options']['im_friend_source'] = array(
+    '#type' => 'select',
+    '#title' => t('Source for the IM Friend Picker'),
+    '#options' => $options,
+    '#default_value' => variable_get('im_friend_source', 'ALLUSERS'),
+    '#description' => t('Where IM should get the list of friends to show in the Friend Picker.  This defaults to "All Users".  If you have any <b>Views</b> based on Users they will appear in this selector. If you are using the <b>User Relationships module</b>, its Relationship Types will also appear in the selector.  Custom modules that implement the hook_im_friends() also appear in this list.'),
+  );
+
+  $form['im_friend_picker_options']['im_online_users_threshold'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Online status threshold - in seconds'),
+   '#default_value' => variable_get('im_online_users_threshold', 900),
+   '#description' => t("How long since a user last accessed the site whould we consider them to be online - in seconds"),
+  );
+
+  $form['im_friend_picker_options']['im_no_one_online'] = array(
+   '#type' => 'textfield',
+   '#size' => 60,
+   '#title' => t('No friends online message'),
+   '#default_value' => variable_get('im_no_one_online', 'Hey, where is everbody?'),
+   '#description' => t("What to display in the Friend Picker when there are no friends online"),
+  );
+
+  $form['im_friend_picker_options']['im_show_talk_to_no_one'] = array(
+   '#type' => 'checkbox',
+   '#title' => t('Show the \'talk to no one\' link on the Friend Picker'),
+   '#default_value' => variable_get('im_show_talk_to_no_one', 1),
+  );
+
+
+  $form['im_text_entry_options'] = array(
+   '#type' => 'fieldset',
+   '#tree' => false,
+   '#title' => t('Message entry text box options'),
+   '#collapsible' => TRUE,
+   '#collapsed' => FALSE,
+   //'#weight' => -99,
+   '#description' => t("Type and sizing of the box where you type in messages"),
+   '#attributes' => array('id' => 'im-text-entry-fieldset'),
+  );
+
+  $form['im_text_entry_options']['im_text_entry_type'] = array(
+   '#type' => 'radios',
+   '#title' => t('Type of input text box to use for entering messages'),
+   '#options' => array('textfield' => 'Text Field', 'textarea' => 'Text Area'),
+   '#default_value' => variable_get('im_text_entry_type', 'textfield'),
+   //'#default_value' => 'textfield',
+  );
+
+  $form['im_text_entry_options']['textfield_options'] = array(
+   '#type' => 'fieldset',
+   '#title' => t('Text Field options'),
+   '#attributes' => array('id' => 'im-textfield-options'),
+  );
+  
+  $form['im_text_entry_options']['textfield_options']['im_command_line_size'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Text field width'),
+   '#default_value' => variable_get('im_command_line_size', 20),
+   '#description' => t("Width of IM Command Line measured in Characters"),
+  );
+
+  $form['im_text_entry_options']['textarea_options'] = array(
+   '#type' => 'fieldset',
+   '#title' => t('Text Area options'),
+   '#attributes' => array('id' => 'im-textarea-options'),
+  );
+
+  $form['im_text_entry_options']['textarea_options']['im_textarea_rows'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Number of rows in text area'),
+   '#default_value' => variable_get('im_textarea_rows', 5),
+   '#description' => t("Number of rows in the textarea where you enter messages"),
+  );
+
+  $form['im_text_entry_options']['textarea_options']['im_textarea_cols'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Number of columnss in text area'),
+   '#default_value' => variable_get('im_textarea_cols', 20),
+   '#description' => t("Width of the textarea where you enter messages (in number of characters)"),
+  );
+
+
+  $form['im_chat_room_settings'] = array(
+   '#type' => 'fieldset',
+   '#title' => t('Chat Rooms'),
+   '#collapsible' => true,
+   '#collapsed' => false,
+	 '#weight' => -99,
+   //'#description' => t("Lalalal"),
+  );
+
+  $msg = t("OK, this is a <b>TOTAL HACK</b>, to be replaced with a proper architecture, but in the interest of immediacy, here's how to create chat rooms on IM.
+     <ol><li>Create a user that will represent a chat room.</li><li>Enter the username in the box above.  You can have multiple chat rooms by creating multiple users and then entering each on a separate line in the box above.</li></ol>
+     note: You can also enter a friendy name for the user name (see below).
+     For example, if you want chat rooms for bird lovers and cow lovers. You might make two users named 'birdlovers' and 'cowlovers'. In this case, you would then enter the following in the box above: 
+     
+     <div style=\"margin-top:5px; border:solid 1px; width:400px;\">user=birdlovers<br>user=cowlovers<br></div>
+		 <p>You can also specificy the following variables, each separated by a semi-colon:
+		 
+		 <p><strong>name</strong> --- Since you might want nicer names to show in IM, you might enter the following in the box above.
+     <div style=\"margin-top:5px; border:solid 1px; width:400px;\">user=birdlovers;name=Tweety Room<br>user=cowlovers;name=Moo Room<br></div>
+     <p><strong>default</strong> --- example below will cause the birdlovers chatroom to open automatically when the user logs in. (if you specificy more than 1 chatroom as default, IM will use the first one it finds... i think ;-)
+     <div style=\"margin-top:5px; border:solid 1px; width:400px;\">user=birdlovers;default=1<br>user=cowlovers<br></div>
+     <p><strong>moderator</strong> --- this allows a user to delete individual messages in a chatroom. use 2 arguments to set this:  <strong>moderator_type</strong> ('user' or 'role') and <strong>moderator_value</strong> (the username or role) 
+     <div style=\"margin-top:5px; border:solid 1px; width:400px;\">user=birdlovers;moderator_type=user;moderator_value=BigBird<br>user=cowlovers;moderator_type=role;moderator_value=rancher<br></div>
+     ");
+  $form['im_chat_room_settings']['im_chat_rooms'] = array(
+   '#type' => 'textarea',
+   '#rows' => 5,
+   '#title' => t('Chat Rooms'),
+   '#default_value' => variable_get('im_chat_rooms', ''),
+   '#description' => $msg,
+  );
+
+  $form['im_chat_room_settings']['im_housekeeping_parms'] = array(
+   '#type' => 'fieldset',
+   '#title' => t('Chat Room Housekeeping'),
+   '#collapsible' => true,
+   '#collapsed' => true,
+  );
+
+  $form['im_chat_room_settings']['im_housekeeping_parms']['im_chatroom_stale_msg_threshold'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Message Lifespan'),
+   '#default_value' => variable_get('im_chatroom_stale_msg_threshold', 5200),
+   '#description' => t("Number of minutes after which a message no longer appears in the console. Day=3600, Week=5200, Month=108000, Forever=0"),
+  );
+
+  $form['im_chat_room_settings']['im_housekeeping_parms']['im_chatroom_max_msgs_stored'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Maximum messages in console'),
+   '#default_value' => variable_get('im_chatroom_max_msgs_stored', 100),
+   '#description' => t("Maximum number of msgs per conversation or chat room that appear in the console.  Enter 0 for no Max"),
+  );
+
+  $form['im_performance_parms'] = array(
+   '#type' => 'fieldset',
+   '#title' => t('Performance & Optimization Settings'),
+   '#collapsible' => true,
+   '#collapsed' => true,
+   //'#description' => t("Lalalal"),
+  );
+
+
+  $form['im_performance_parms']['im_refresh_rate'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Get Messages Refresh Rate'),
+   '#default_value' => variable_get('im_refresh_rate', 2000),
+   '#description' => t("How often IM polls the server to pull in new messages - in milliseconds"),
+  );
+  
+  $form['im_performance_parms']['im_refresh_rate_inactive_threshold'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Inactive Threshold'),
+   '#default_value' => variable_get('im_refresh_rate_inactive_threshold', 10000),
+   '#description' => t("How long after last incoming message to apply the Inactive Refresh Rate - in milliseconds"),
+  );
+  
+  $form['im_performance_parms']['im_refresh_rate_inactive'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Get Messages Inactive Refresh Rate'),
+   '#default_value' => variable_get('im_refresh_rate_inactive', 5000),
+   '#description' => t("How often IM polls the server to pull in new messages when Inactive"),
+  );
+  
+  $form['im_performance_parms']['im_friendlist_refresh_rate'] = array(
+   '#type' => 'textfield',
+   '#size' => 10,
+   '#title' => t('Friend Picker refresh rate - in milliseconds'),
+   '#default_value' => variable_get('im_friendlist_refresh_rate', 10000),
+   '#description' => t("How often IM polls the server to refresh the Friend Picker - in milliseconds"),
+  );
+
+  if (_has_audio()) {
+    im_event_alert_settings(0,$form);
+    $form['im_event_alerts']['im_allow_user_alert_settings'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Allow users to change their alert settings'),
+      '#description' => t("Show these sound alert settings in the user profile."),
+      '#default_value' => variable_get('im_allow_user_alert_settings', 1),
+    );
+  }
+
+  if (module_exists('dialectic')) {
+    $bots = _dialectic_filters();
+    $options = array('none' => t('No Bot Please')) + $bots;
+
+    $form['im_bot_friend'] = array(
+      '#type' => 'select',
+      '#title' => t('Dialectic for bot friend'),
+      '#options' => $options,
+      '#default_value' => variable_get('im_bot_friend', 'none'),
+      '#description' => t('What dialect should your bot friend speak.'),
+    );
+  }
+  else {
+    $text1 = t("<p>For great fun, download the") . ' '
+      . l('Dialectic Module', 'http://drupal.org/project/dialectic') . ' '
+      . t("and talk to Elmer Fudd, the Swedish Chef, a Pirate, or other various and sundry characters!<br>");
+    $form['bot_tout'] = array(
+     '#type' => 'markup',
+     //'#title' => t('Dialectic for bot friend'),
+     '#value' => $text1,
+    );
+  }
+
+  
+  return system_settings_form($form);
+}
+
+
+
+function im_event_alert_settings($uid = 0, &$form = array()) {
+  global $user;
+  $sound_files_dir = drupal_get_path('module', 'im') . '/sounds';
+  $sound_files = _dirList($sound_files_dir);
+  $options = array_merge(array('none' => '(none)'), $sound_files);
+  $events = im_events();
+  
+  $form['im_event_alerts'] = array(
+   '#type' => 'fieldset',
+   '#title' => t('IM Event Sound Alerts'),
+   '#collapsible' => true,
+   '#collapsed' => true,
+   '#description' => t("Assign sounds to IM events"),
+  );
+
+  foreach($events as $key => $event) {
+    $form['im_event_alerts']['im_alert_' . $key] = array(
+      '#type' => 'select',
+      '#title' => t($event['label']),
+      '#options' => $options,
+      '#default_value' => $event['sound_file'],
+    );
+  }
+  
+}
+
+//returns list of friends who have sent a msg that hasn't been recieved
+//along with the number of unreceived msgs
+function _get_waiters($uid, $other_id) {
+  $waiters = array();
+
+  $results = db_query(
+    "SELECT suid, sname, COUNT(*) AS num_waiting FROM {im_msg}
+    WHERE ruid=%d AND suid != %d AND received_time = '%s'
+    GROUP BY suid",
+    $uid, $other_id, '0000-00-00 00:00:00'); 
+  
+  while ($result = db_fetch_array($results)) {
+    $waiters[$result['suid']] = $result;
+  }
+
+  return $waiters;
+
+}
+
+//temporary DEMO site list of users
+//TODO Kill this function and block delta=2
+function dev_im_make_userlist() {
+  global $user;
+  $uid = $user->uid;
+  $output = '';
+  $results = db_query("SELECT uid, name FROM {users} WHERE uid NOT IN (0, %d) ORDER BY name", $uid);
+  while ($result = db_fetch_array($results)) {
+    $one = l($result['name'], 'user/'. $result['uid']);
+    $output .= '<br>'. $one;
+  }
+  return $output;
+}
+
+function _im_bot_name() {
+  if (module_exists('dialectic')) {
+    $n = variable_get('im_bot_friend', 'The ');
+    $a = _dialectic_filters();
+    return $a[$n] . 'Bot';
+  }
+}
+
+function _dirList ($directory)  {
+    $results = array();
+    $handler = opendir($directory);
+    while ($file = readdir($handler)) {
+      if ($file != '.' && $file != '..') $results[$directory . '/' . $file] = $file;
+    }
+    closedir($handler);
+    return $results;
+}
+
+
+function im_events() {
+  global $user;
+  
+  $event_types = array(
+    'current_convo_msg_in' => t('Incoming msg - current conversation'),
+    'other_msg_in' => t('Incoming msg  - not current conversation'),
+    'friendpicker_user_left' => t('FriendPicker  - User goes offline'),
+    'friendpicker_user_added' => t('FriendPicker - User comes online'),
+  );
+  
+  foreach($event_types as $key => $label) {
+    $default_value = $user->{'im_alert_' . $key};
+    if (!$default_value) {
+      $default_value = variable_get('im_alert_' . $key, 'none');
+    }
+    $event = array('name' => $key, 'label' => $label, 'sound_file' => $default_value);
+    $events[$key] = $event;
+  }
+  return $events;
+}
+
+function _has_audio() {
+  return is_file(dirname(__FILE__) . DIRECTORY_SEPARATOR . 'player_mp3_js.swf');
+}
+
+function im_is_user_chatroom_admin($chatroom_id, $uid = NULL) {
+  global $user;
+	if (is_null($uid)) {
+    $this_user =  $user;
+	}
+	else {
+    $this_user = user_load(array('uid' => $uid));
+	}  
+  $chatrooms = im_get_chatrooms();
+	
+	if (!$chatroom = $chatrooms[$chatroom_id]) {
+  	return FALSE;
+	}
+	switch ($chatroom['moderator_type']) {
+		case 'user':
+      return ($uid == $chatroom['moderator_value']);
+		  break;
+    case 'role':
+  		return (in_array('special', array_values($this_user->roles)));
+      break;
+	} 
+ 	
+  return FALSE;
+}
+

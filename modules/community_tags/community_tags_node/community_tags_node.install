@@ -1,0 +1,27 @@
+<?php
+
+/**
+ * @file
+ * The install file for the community_tags_node module.
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function community_tags_node_install() {
+  // Drop module weight so we act after taxonomy.
+  $weight = (int)db_result(db_query("SELECT weight FROM {system} WHERE name = 'taxonomy'"));
+  db_query("UPDATE {system} SET weight = %d WHERE name = 'community_tags_node'", $weight + 1);
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function community_tags_node_uninstall() {
+  variable_del('community_tags_node_settings');
+
+  drupal_set_message(t('Community Tags Node integration has been uninstalled.'));
+}
+
+
+

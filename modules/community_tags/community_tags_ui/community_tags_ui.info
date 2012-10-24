@@ -1,0 +1,13 @@
+; $Id$
+name = Community Tags UI
+description = "Adds extra UI features such as popup tag forms."
+dependencies[] = community_tags
+dependencies[] = dialog
+package = "Community Tags"
+core=6.x
+; Information added by drupal.org packaging script on 2011-05-27
+version = "6.x-2.0-beta1"
+core = "6.x"
+project = "community_tags"
+datestamp = "1306492915"
+

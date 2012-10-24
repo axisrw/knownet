@@ -1,0 +1,32 @@
+<?php
+/**
+ * @file
+ * The install file for the community_tags_authcache module.
+ */
+// Default caching rules (Never cache these pages)
+define('COMMUNITY_TAGS_AUTHCACHE_NOCACHE_DEFAULT', '
+node/*/tagmgmt');
+
+/**
+ * Implementation of hook_install().
+ */
+function community_tags_authcache_install() {
+  // Add tag managment tab to the default ruleset.
+  $pagecaching = variable_get('authcache_pagecaching', array(array('option'=>0,'pages'=>AUTHCACHE_NOCACHE_DEFAULT,'roles'=>array(DRUPAL_ANONYMOUS_RID))));
+  $pagecaching[0]['pages'] .= COMMUNITY_TAGS_AUTHCACHE_NOCACHE_DEFAULT;
+  variable_set('authcache_pagecaching', $pagecaching);
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function community_tags_authcache_uninstall() {
+  // Remove tag managment tab to the default ruleset.
+  $pagecaching = variable_get('authcache_pagecaching', array());
+  if(!empty($pagecaching)) {
+    $pagecaching[0]['pages'] = str_replace(COMMUNITY_TAGS_AUTHCACHE_NOCACHE_DEFAULT, '', $pagecaching[0]['pages']);
+    variable_set('authcache_pagecaching', $pagecaching);
+  }
+
+  drupal_set_message(t('Community Tags Authcache integration has been uninstalled.'));
+}

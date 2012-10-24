@@ -1,0 +1,13 @@
+
+.activity-comments-click-to-show {
+  border-bottom: 1px dotted #666;
+  cursor: pointer;
+}
+
+.activity-comments-form-hidden {
+  display: none;
+}
+
+.activity-comments-form-shown {
+  display: block;
+}

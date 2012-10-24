@@ -1,0 +1,15 @@
+name = "Best Answer"
+description =  "Allows users to search for questions and post new ones."
+package = "Answers"
+dependencies[] = answers
+dependencies[]= content_copy
+core = 6.x
+version = "6.x-1.x"
+
+
+; Information added by drupal.org packaging script on 2011-05-11
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "best_answer"
+datestamp = "1305115393"
+

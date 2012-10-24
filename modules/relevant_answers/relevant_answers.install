@@ -1,0 +1,100 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install, update and uninstall functions for the Relevant Answers module.
+ */
+
+module_load_include('inc', 'content', 'includes/content.crud');
+
+/**
+ * Implementation of hook_install()
+ */
+function relevant_answers_install() {
+
+  // Add a 'field_question_path' field to 'question' CCK content type (which is defined by the answers module)
+  $field = _relevant_answers_field_question_path_field();
+  content_field_instance_create($field);
+}
+
+/**
+ * Implementation of hook_uninstall()
+ */
+function relevant_answers_uninstall() {
+  // Delete the 'field_question_path' from the 'question' CCK content type
+  content_field_instance_delete('field_question_path', 'question');
+}
+
+function _relevant_answers_field_question_path_field() {
+  $array = array(
+    'field_name' => 'field_question_path',
+    'type_name' => 'question',
+    'display_settings' => 
+    array(
+      'weight' => '4',
+      'parent' => '',
+      'label' => 
+      array(
+        'format' => 'above',
+      ),
+      'teaser' => 
+      array(
+        'format' => 'default',
+        'exclude' => 1,
+      ),
+      'full' => 
+      array(
+        'format' => 'default',
+        'exclude' => 1,
+      ),
+      4 => 
+      array(
+        'format' => 'default',
+        'exclude' => 0,
+      ),
+    ),
+    'widget_active' => '1',
+    'type' => 'text',
+    'required' => '0',
+    'multiple' => '0',
+    'db_storage' => '1',
+    'module' => 'text',
+    'active' => '1',
+    'locked' => '0',
+    'columns' => 
+    array(
+      'value' => 
+      array(
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+        'sortable' => TRUE,
+        'views' => TRUE,
+      ),
+    ),
+    'text_processing' => '0',
+    'max_length' => '',
+    'allowed_values' => '',
+    'allowed_values_php' => '',
+    'widget' => 
+    array(
+      'rows' => 5,
+      'size' => '60',
+      'default_value' => 
+      array(
+        0 => 
+        array(
+          'value' => '',
+          '_error_element' => 'default_value_widget][field_question_path][0][value',
+        ),
+      ),
+      'default_value_php' => NULL,
+      'label' => 'Path',
+      'weight' => '4',
+      'description' => '',
+      'type' => 'text_textfield',
+      'module' => 'text',
+    ),
+  );
+  return $array;
+}

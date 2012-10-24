@@ -1,0 +1,505 @@
+# $Id: simple_reservation.de.po,v 1.2 2009/12/27 13:33:56 jwendebaum Exp $
+#
+# German translation of Drupal (general)
+# Copyright YEAR NAME <EMAIL@ADDRESS>
+# Generated from files:
+#  simplereservation_week.tpl.php: n/a
+#  simplereservation.module,v 1.1 2009/07/09 12:25:25 jwendebaum
+#  simplereservation.install: n/a
+#  simplereservation.info,v 1.1 2009/07/09 12:25:25 jwendebaum
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"POT-Creation-Date: 2009-09-29 13:27+0200\n"
+"PO-Revision-Date: 2009-09-29 13:28+0100\n"
+"Last-Translator: Cornelia Boenigk <c@cornelia-boenigk.de>\n"
+"Language-Team: German <EMAIL@ADDRESS>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n!=1);\n"
+
+#: simplereservation_week.tpl.php:10
+msgid "previous week"
+msgstr "vorige Woche"
+
+#: simplereservation_week.tpl.php:12
+msgid "previous month"
+msgstr "voriger Monat"
+
+#: simplereservation_week.tpl.php:14
+msgid "week"
+msgstr "Woche"
+
+#: simplereservation_week.tpl.php:18
+msgid "next month"
+msgstr "nächster Monat"
+
+#: simplereservation_week.tpl.php:22
+msgid "next week"
+msgstr "nächste Woche"
+
+#: simplereservation_week.tpl.php:65
+#: simplereservation.module:744;1077
+msgid "booked by"
+msgstr "reserviert von"
+
+#: simplereservation_week.tpl.php:67
+msgid "for"
+msgstr "für"
+
+#: simplereservation.module:20
+msgid "The Simple Reservation module allows to create any number of user-defined bookable items. The items may have a description and a comment."
+msgstr "Mit dem Simple Reservations Modul kann man beliebig viele Objekte definieren, die von Besuchern reserviert werden können. Zu den Objekte kann eine Beschreibung und einen Kommentar angegeben werden."
+
+#: simplereservation.module:256
+msgid "There are no items for reservation."
+msgstr "Es können keine Objekte reserviert werden."
+
+#: simplereservation.module:300
+msgid "Date and Time"
+msgstr "Datum und Uhrzeit"
+
+#: simplereservation.module:301
+msgid "Date and time for this reservation."
+msgstr "Datum und Uhrzeit dieser Reservierung"
+
+#: simplereservation.module:337
+msgid "Start"
+msgstr "Beginn"
+
+#: simplereservation.module:339
+msgid "Start date and time of this reservation."
+msgstr "Startdatum und -Zeit dieser Reservierung"
+
+#: simplereservation.module:361
+msgid "End"
+msgstr "Ende"
+
+#: simplereservation.module:363
+msgid "End date and time of this reservation."
+msgstr "Enddatum und -Zeit dieser Reservierung"
+
+#: simplereservation.module:368
+msgid "Reservation for the complete day"
+msgstr "Reservierung fuer den ganzen Tag"
+
+#: simplereservation.module:369
+msgid "Enable this reservation if you want to reserve for the whole day. This overwrites the above hour/minute setting."
+msgstr "Aktivieren Sie diese Option, wenn Sie den ganzen Tag reservieren wollen. Diese Einstellung überschreibt die oben angegebenen Stunden und Minuten."
+
+#: simplereservation.module:386
+msgid "Item"
+msgstr "Objekt"
+
+#: simplereservation.module:389
+msgid "The item you want to reserve."
+msgstr "Dieses Objekt möchten Sie reservieren."
+
+#: simplereservation.module:398;771;946
+msgid "Comment"
+msgstr "Kommentar"
+
+#: simplereservation.module:400
+msgid "You can add a comment for your reservation."
+msgstr "Sie können Ihrer Reservierung einen Kommentar hinzufügen."
+
+#: simplereservation.module:411
+msgid "This reservation is for"
+msgstr "Die Reservierung ist fuer"
+
+#: simplereservation.module:415
+msgid "Add a name here if you want to reserve this item for somebody else."
+msgstr "Tragen Sie hier einen Benutzernamen ein, wenn Sie für diesen Benutzer reservieren möchten."
+
+#: simplereservation.module:426
+msgid "Delete this reservation."
+msgstr "Diese Reservierung löschen."
+
+#: simplereservation.module:429
+msgid "Save changes"
+msgstr "Änderungen speichern"
+
+#: simplereservation.module:430
+msgid "Save this reservation"
+msgstr "Reservierung speichern"
+
+#: simplereservation.module:454
+msgid "Are you sure you want to delete the reservation %rid?"
+msgstr "Sind Sie sicher, dass Sie die Reservierung %rid löschen wollen?"
+
+#: simplereservation.module:456;887
+msgid "This action cannot be undone."
+msgstr "Dieser Vorgang kann nicht rückgängig gemacht werden."
+
+#: simplereservation.module:457;888
+msgid "Delete"
+msgstr "Löschen"
+
+#: simplereservation.module:458;889
+msgid "Cancel"
+msgstr "Abbrechen"
+
+#: simplereservation.module:476
+msgid "The reservation has been deleted."
+msgstr "die Reservierung wurde gelöscht."
+
+#: simplereservation.module:527
+msgid "You are not allowed to create more than !max reservations!"
+msgstr "Sie dürfen höchstens !max Reservierungen eintragen."
+
+#: simplereservation.module:542
+msgid "You are not allowed to book more !max weeks in advance!"
+msgstr "Sie können höchstens !max Wochen im Voraus reservieren."
+
+#: simplereservation.module:549
+msgid "Begin or end of reservation is in the past!"
+msgstr "Der Beginn- oder Endzeitpunkt Ihrer Reservierung liegt in der Vergangenheit."
+
+#: simplereservation.module:553
+msgid "End of reservation is before begin!"
+msgstr "Das Ende der Reservierung liegt vor dem Beginn!"
+
+#: simplereservation.module:565
+msgid "The item is already reserved during that time!"
+msgstr "Terminüberschneidung für dieses Objekt für die gesamte Dauer Ihrer Reservierung. Das Objekt ist bereits vergeben."
+
+#: simplereservation.module:576
+msgid "The item is already reserved at the beginning of your reservation!"
+msgstr "Terminüberschneidung für dieses Objekt zu Beginn ihrer Reservierung. "
+
+#: simplereservation.module:588
+msgid "The item is already reserved at the end of your reservation!"
+msgstr "Terminüberschneidung für dieses Objekt am Ende ihrer Reservierung. ("
+
+#: simplereservation.module:636
+msgid "The reservation has been saved."
+msgstr "Die Reservieerung wurde gespeichert."
+
+#: simplereservation.module:687;690
+msgid "Upcoming Reservations"
+msgstr "Aktuelle Reservierungen"
+
+#: simplereservation.module:734;1067
+msgid "whole day"
+msgstr "ganztägig"
+
+#: simplereservation.module:752
+msgid "There are no upcoming reservations."
+msgstr "Es gibt keine aktuellen Reservierungen"
+
+#: simplereservation.module:769
+msgid "Name"
+msgstr "Name"
+
+#: simplereservation.module:770
+msgid "Description"
+msgstr "Beschreibung"
+
+#: simplereservation.module:772
+msgid "Status"
+msgstr "Status"
+
+#: simplereservation.module:773
+msgid "Operations"
+msgstr "Operationen"
+
+#: simplereservation.module:783
+msgid "not available"
+msgstr "nicht verfügbar"
+
+#: simplereservation.module:785
+msgid "available"
+msgstr "verfügbar"
+
+#: simplereservation.module:792
+msgid "edit"
+msgstr "Bearbeiten"
+
+#: simplereservation.module:793
+msgid "delete"
+msgstr "Löschen"
+
+#: simplereservation.module:803
+msgid "Create new item"
+msgstr "Ein neues Objekt erzeugen."
+
+#: simplereservation.module:804
+msgid "Show all reservations"
+msgstr "Alle Reservierungen"
+
+#: simplereservation.module:805
+msgid "Show all upcoming reservations"
+msgstr "Alle aktuellen Reservierungen"
+
+#: simplereservation.module:817
+msgid "Settings"
+msgstr "Einstellungen"
+
+#: simplereservation.module:818
+msgid "General settings for the reservation system."
+msgstr "Allgemeine Einstellungen für das Reservierungssystem"
+
+#: simplereservation.module:827
+msgid "Maximum number of reservations per person"
+msgstr "Maximale Anzahl von Reservierungen pro Person"
+
+#: simplereservation.module:829
+msgid "This setting defines the maximum number of reservations a user can make (not counting passed reservations). Enter 0 for an unlimited number. Administrators are not affected by this setting."
+msgstr "Diese Einstellung bestimmt, wieviele Reservierungen ein Benutzer maximal vornehmen kann (vergangene Reservierungen werden nicht mitgezählt). Geben Sie 0 ein, wenn der Benutzer unbegrenzt viele Reservierungen tätigen darf. Administratoren sind von dieser Einstellung nicht betroffen."
+
+#: simplereservation.module:834
+msgid "Maximum number of weeks a user can book in advance"
+msgstr "Maximale Anzahl der Wochen, für die im Voraus reserviert werden kann."
+
+#: simplereservation.module:836
+msgid "Enter 0 for an unlimited number. Administrators are not affected by this setting."
+msgstr "Geben sie 0 ein, wenn die Anzahl der Wochen nicht beschränkt wird. Administratoren sind von dieser Einstellung nicht betroffen."
+
+#: simplereservation.module:842
+msgid "Resolution for the hours and minutes for the reservations"
+msgstr "Zeitraster für Reservierungen."
+
+#: simplereservation.module:844
+msgid "If you enter e.g. 15, a reservation can only be done in a quarter hourly basis, e.g. 9:00, 9:15, 9:30, ..."
+msgstr "Wenn Sie z.B 15 eingeben, können Reservierungen nur in einem viertelstündlichen Raster vorgenommen werden, etwa 9:00, 9:15, 9:30, ..."
+
+#: simplereservation.module:849
+msgid "Reservations for whole days only"
+msgstr "Reservierungen sind nur für ganze Tage möglich."
+
+#: simplereservation.module:850
+msgid "When you enable this box, reservations can only be done for whole days from 0:00 until 23:59."
+msgstr "Wenn Sie diese Box markieren, können nur ganztägige Reservierungen, von 0:00 bis 23:59 eingetragen werden."
+
+#: simplereservation.module:856
+msgid "Save configuration"
+msgstr "Konfiguration speichern"
+
+#: simplereservation.module:869
+msgid "The configuration has been saved."
+msgstr "Die Konfiguration wurde gespeichert."
+
+#: simplereservation.module:885
+msgid "Are you sure you want to delete the item %name?"
+msgstr "Sind Sie sicher, dass Sie das Objekt %name löschen wollen?"
+
+#: simplereservation.module:901
+msgid "The item has been deleted."
+msgstr "Das Objekr wurde gelöscht."
+
+#: simplereservation.module:932
+msgid "Name of the item"
+msgstr "Name des Objekts"
+
+#: simplereservation.module:936
+msgid "A (unique) short name to identify the item, e.g. \"Room 12\", \"Number 42\" or a registration number."
+msgstr "Ein kurzer (eindeutiger) Name für das Objekt, z.B.  \"Zimmer 12\", \"Nummer 42\" oder eine Registriernummer ..."
+
+#: simplereservation.module:939
+#: simplereservation.install:82
+msgid "Description of the item"
+msgstr "Beschreibung des Objekts"
+
+#: simplereservation.module:943
+msgid "More detailed information to describe the item."
+msgstr "Weitere Informationen zum Objekt."
+
+#: simplereservation.module:950
+msgid "e.g. \"non-smoking\", \"diesel\" or something."
+msgstr "z.B. \"Nichtraucher\", \"Diesel\" oder ähnlich"
+
+#: simplereservation.module:958
+msgid "This item is available for reservation"
+msgstr "Dieses Objekt kann reserviert werden."
+
+#: simplereservation.module:959
+msgid "If you disable this, the item will not show in the reservation list and won't be available for reservation. You can use this to prepare a list of items or to prevent an item from reservation if it is e.g. broken."
+msgstr "Wenn Sie diese Option deaktivieren, erscheint es nicht mehr in der Liste der buchbaren Objekte. Sie können diese Option dazu verwenden, eine Liste von buchbaren Objekten vorzubereiten oder ein Objekt (vorübergehend) für Reservierungen sperren."
+
+#: simplereservation.module:965
+msgid "Save"
+msgstr "Speichern"
+
+#: simplereservation.module:988
+msgid "An item with that name exists already."
+msgstr "Es gibt bereits ein Objekt mit diesem Namen."
+
+#: simplereservation.module:1009;1018
+msgid "The item has been saved."
+msgstr "Das Objekt wurde gespeichert."
+
+#: simplereservation.module:623;634
+msgid "reservation"
+msgstr "Reservierung"
+
+#: simplereservation.module:623
+msgid "Reservation %rid updated by %name"
+msgstr "Reservierung %rid wurde von %name aktualisiert."
+
+#: simplereservation.module:634
+msgid "New reservation %rid added by %name"
+msgstr "Neue Reservierung %rid wirde von %name eingefügt."
+
+#: simplereservation.module:30
+msgid "access simple reservations"
+msgstr "Zugriff auf Reservierungen"
+
+#: simplereservation.module:31
+msgid "unrestricted simple reservations"
+msgstr "Uneingeschränkter Zugriff auf Reservierungen"
+
+#: simplereservation.module:32
+msgid "add simple reservations"
+msgstr "Reservierungen eintragen"
+
+#: simplereservation.module:33
+msgid "add simple reservations for others"
+msgstr "Reservierungen für andere Benutzer eintragen"
+
+#: simplereservation.module:34
+msgid "edit own simple reservations"
+msgstr "Eigene Reservierungen bearbeiten"
+
+#: simplereservation.module:35
+msgid "edit simple reservations of others"
+msgstr "Reservierungen anderer Benutzer bearbeiten"
+
+#: simplereservation.module:36
+msgid "delete own simple reservations"
+msgstr "Eigene Reservierungen löschen"
+
+#: simplereservation.module:37
+msgid "delete simple reservations of others"
+msgstr "Reservierungen anderer Benutzer löschen"
+
+#: simplereservation.module:38
+msgid "administer simple reservation system"
+msgstr "Administration des Reservierungssystems"
+
+#: simplereservation.module:50
+#: simplereservation.info:0
+msgid "Simple Reservation"
+msgstr "Reservierungen"
+
+#: simplereservation.module:51
+msgid "Configure the reservation system and the items which are available for reservation."
+msgstr "Konfiguration des Reservierungssystems und der buchbaren Objekte."
+
+#: simplereservation.module:57
+msgid "Delete item"
+msgstr "Objekt löschen"
+
+#: simplereservation.module:58
+msgid "Delete an item from the reservation system."
+msgstr "Ein Objekt aus dem Reservierungssystem löschen."
+
+#: simplereservation.module:65
+msgid "Edit item"
+msgstr "Objekt bearbeiten"
+
+#: simplereservation.module:66
+msgid "Edit an item from the reservation system."
+msgstr "Ein Objekt des Reservierungssystems bearbeiten."
+
+#: simplereservation.module:73
+msgid "List Reservations"
+msgstr "Reservierungsliste"
+
+#: simplereservation.module:74
+msgid "Display a list of all/upcoming reservations."
+msgstr "Alle oder alle aktuellen Reservierungen anzeigen"
+
+#: simplereservation.module:81
+msgid "Reservation"
+msgstr "Reservierung"
+
+#: simplereservation.module:82
+msgid "Main page of the simple reservation system."
+msgstr "Hauptseite des Reservierungssystems"
+
+#: simplereservation.module:88
+msgid "Add reservation"
+msgstr "Reservierung eintragen"
+
+#: simplereservation.module:89
+msgid "Add a reservation into the simple reservation system."
+msgstr "Eine Reservierung in das Reservierungssystem einfügen."
+
+#: simplereservation.module:95
+msgid "Edit reservation"
+msgstr "Reservierung bearbeiten"
+
+#: simplereservation.module:96
+msgid "Edit an existing reservation."
+msgstr "Eine bestehende Reservierung bearbeiten"
+
+#: simplereservation.module:102
+msgid "Delete reservation"
+msgstr "Reservierung löschen"
+
+#: simplereservation.module:103
+msgid "Delete a reservation from the reservation system."
+msgstr "Eine Reservierung aus dem Reservierungssystem löschen."
+
+#: simplereservation.install:8
+msgid "{simplereservation_reservation} holds all reservations done"
+msgstr "{simplereservation_reservation} speichert alle Reservierungen"
+
+#: simplereservation.install:11
+msgid "Reservation ID"
+msgstr "Reservierungsnummer"
+
+#: simplereservation.install:17
+msgid "item ID"
+msgstr "Objekt ID"
+
+#: simplereservation.install:23
+msgid "UID of the user for who the item reserved"
+msgstr "UID des Benutzers, der die Reservierung eingetragen hat."
+
+#: simplereservation.install:29
+msgid "ID of the user for whom the item was reserved for"
+msgstr "ID des Benutzers, auf dessen Namen die Reservierung eingetragen wurde."
+
+#: simplereservation.install:35
+msgid "time when the reservation starts"
+msgstr "Beginn (Uhrzeit) des Reservierungszeitraumes"
+
+#: simplereservation.install:42
+msgid "time when the reservation ends"
+msgstr "Ende (Uhrzeit) des Reservierungszeitraumes"
+
+#: simplereservation.install:49
+msgid "free text comment that accompanies the reservation"
+msgstr "Kommentar zu dieser Reservierung (Freitext)"
+
+#: simplereservation.install:66
+msgid "{simplereservation_item} holds all items which can be reserved"
+msgstr "{simplereservation_item} speichert alle buchbaren Reservierungen"
+
+#: simplereservation.install:69
+msgid "Item ID"
+msgstr "Objekt ID"
+
+#: simplereservation.install:75
+msgid "name of the item"
+msgstr "Name des Objekts"
+
+#: simplereservation.install:89
+msgid "free comment of the item"
+msgstr "Kommentar zu diesem Objekt (Freitext)"
+
+#: simplereservation.install:96
+msgid "status of the item (e.g. availability)"
+msgstr "Objektstatus (z.B. Verfügbarkeit)"
+
+#: simplereservation.info:0
+msgid "A simple reservation system"
+msgstr "Ein einfaches Reservierungs-System"
+
+#: simplereservation.info:0
+msgid "Other"
+msgstr "Sonstige"
+

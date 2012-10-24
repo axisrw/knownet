@@ -1,0 +1,12 @@
+; $Id: dxmpp_auth.info,v 1.1.2.1 2010/03/18 13:56:28 aaron Exp $
+name = DXMPP Authentication
+description = Allows the registration of XMPP users from a remote location.
+core = 6.x
+package = XMPP
+
+; Information added by drupal.org packaging script on 2010-07-28
+version = "6.x-1.0-beta1"
+core = "6.x"
+project = "dxmpp"
+datestamp = "1280348708"
+

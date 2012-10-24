@@ -1,0 +1,14 @@
+; $Id: sphinx_facet.info,v 1.1.4.2 2009/09/24 00:18:19 johsw Exp $
+name = Sphinx facets
+description = "This module provides blocks with facets"
+package = "Search"
+core = 6.x
+dependencies[] = sphinx
+version = "0.01"
+
+; Information added by drupal.org packaging script on 2010-06-09
+version = "6.x-1.3"
+core = "6.x"
+project = "sphinx"
+datestamp = "1276114211"
+

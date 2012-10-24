@@ -1,0 +1,12 @@
+; $Id: birthdays.info,v 1.3 2008/09/18 08:07:56 maartenvg Exp $
+name = Birthdays
+description = Displays and reminds of upcoming users birthdays.
+dependencies[] = profile
+core = 6.x
+
+; Information added by drupal.org packaging script on 2009-02-09
+version = "6.x-1.0"
+core = "6.x"
+project = "birthdays"
+datestamp = "1234169104"
+

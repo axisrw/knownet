@@ -1,0 +1,15 @@
+; $Id: dxmpp.info,v 1.1.2.3 2010/04/09 15:22:06 aaron Exp $
+name = DXMPP
+description = Provides the Drupal XMPP client.
+core = 6.x
+package = XMPP
+dependencies[] = jquery_update
+dependencies[] = jquery_ui
+dependencies[] = user_relationships_api
+
+; Information added by drupal.org packaging script on 2010-07-28
+version = "6.x-1.0-beta1"
+core = "6.x"
+project = "dxmpp"
+datestamp = "1280348708"
+

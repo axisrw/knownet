@@ -1,0 +1,185 @@
+<?php 
+// $Id$ 
+/**
+ * @file
+ * Enables users to ask questions about specific pages on a site (and get answers from others)
+ * 
+ * Questions are associated with specific paths on the site. 
+ *
+ * This module creates two blocks:
+ *   - 'Popular Questions': Displays the questions for a path, sorted by most frequently viewed
+ *   - 'Recent Questions': Displays the questions for a path, sorted by most recently asked
+ *
+ * The module also provides two page views, with the same names, under the paths (the '*' wildcard represents a specific path the questions are about, e.g., 'node/1'):
+ *   - relevant_questions/popular/*
+ *   - relevant_questions/recent/*
+ *
+ * The block views provide a "See More" link when the number of questions associated with the current path exceeds the maximum.
+ * Also, both the page and the block views provide an "Ask New" link when the user has permission to 'create questions'.
+ *
+ * When you install the module, go to Administer -> Site Building -> Blocks to install the block(s) you want
+ * in the regions you want. Just like other blocks, administrators can set the paths for which each block is displayed
+ * 
+ * You can set the maximum number of questions that can be displayed in the blocks. This is a standard views setting.
+ *   1. Go to Site Building -> Views.
+ *   2. Edit the view 'relevant_questions'. 
+ *   3. Edit the "Items to display" setting of the default view inputting the value you would like.
+ * 
+ * By Chip Cleary
+ */
+
+include_once('relevant_answers.features.inc');
+
+/**
+ * Implementation of hook_help()
+ */
+function relevant_answers_help($path, $arg) {
+  switch ($path) {
+    case 'admin/modules#description':
+      return t('Enables users to ask questions and get answers about specific pages on a site.');
+  }
+}
+
+/**
+ * Returns a string containing the current path 
+ */
+ 
+function relevant_answers_get_path() {
+  $path = isset($_GET['q']) ? $_GET['q'] : '';
+  return check_plain($path);  
+}
+
+function relevant_answers_get_page_view_path() {
+  $path = relevant_answers_get_path();
+  $path = drupal_substr($path, 19); // strip off 'relevant_questions/'
+  return $path;
+}
+
+/**
+ * Implementation of hook_form_alter()
+ *
+ * Automatically hide and set the field 'field_question_path' on the 'question_node_form'
+ *
+ */
+function relevant_answers_form_alter(&$form, &$form_state , $form_id) {
+  if ($form_id == 'question_node_form') {
+    $form['#after_build'] = array('_relevant_answers_question_node_form_after_build');
+  }
+}
+
+function _relevant_answers_question_node_form_after_build(&$form, &$form_state) {
+  $path = check_plain($_GET['path']);
+  $path = $path ? relevant_answers_decompress_string($path) : NULL;
+  $form['field_question_path'][0]['value']['#type'] = 'hidden';
+  $form['field_question_path'][0]['value']['#value'] = $path;
+
+  return $form;
+}
+
+function relevant_answers_get_new_question_path() {
+  $path = relevant_answers_get_path();
+  $path = drupal_substr($path, 18); // strip off 'node/add/question/'
+  return $path;
+}
+
+/**
+ * Implement hook_views_post_render
+ *
+ * Perform some magic to insert links into relevant_answers views
+ */
+function relevant_answers_views_post_render(&$view) {
+  if ($view->name == 'relevant_questions') {
+    $display = $view->display[$view->current_display];
+    $output = $display->handler->output;
+    $output = relevant_answers_strip_views_tail($output)           // strip off the relevant tail
+              . relevant_answers_add_view_links($view, $display)   // insert links
+              . '</div>';                                          // reinsert the last "</div>"
+    $display->handler->output = $output;
+  }
+}
+
+/**
+ * Strip off the appropriate tail end of the current output. This strips off:
+ *    - If views has inserted a more link exists: The existing more link plus the last "</div>"
+ *    - If not: The last "</div>"
+ */
+function relevant_answers_strip_views_tail($output) {
+  $probe = '<div class="more-link">';
+  $index = stripos($output, $probe);
+  return substr($output, 0, $index ? $index : -7);
+}
+
+/**
+ * Perform more magic to define the links
+ */
+function relevant_answers_add_view_links($view, $display) {
+  $attributes = array('class' => 'links more-link');
+  $original_path = implode('/', $view->args); 
+  $compress_path = relevant_answers_compress_string($original_path);
+
+  // If the user has permission to create questions ... 
+  if (user_access('create question content')) {
+    $links[] = array(
+      'title' => 'Ask New', 
+      'href' => 'node/add/question',
+	  'query' => array('path' => $compress_path),
+    );
+  }
+  
+  // If it is a block view and there are more questions than shown ... 
+  if (strncmp($display->id, 'block', 5) == 0 && $view->total_rows > $view->pager['items_per_page']) { 
+    $page_view_id = $display->handler->options['link_display'];
+    $page_display = $view->display[$page_view_id];
+    $page_path = strtr($page_display->display_options['path'], array('%' => $original_path));
+    $links[] = array(
+      'title' => 'See More', 
+      'href' => $page_path,
+    );
+  }
+  
+  return theme_links($links, $attributes);
+}
+
+/*
+ * Implement hook_link
+ *
+ * Add link to allow user to return to the original page for questions that are, in fact, associated with a page
+ */
+function relevant_answers_link($type, $object) {
+  $links = array();
+
+  if ($type == 'node' && $object->type == 'question') {
+    $path = $object->field_question_path[0]['value'];
+    if ($path) {
+      $links['return_to_page'] = array(
+        'title' => 'Return to page',
+        'href' => $path,
+      );
+    }
+  }
+  
+  return $links;
+}
+
+
+/*
+ * This approach to encoding URLs based on:
+ * http://www.drupalcoder.com/blog/passing-urls-as-path-arguments-in-urls
+ *
+ */
+function relevant_answers_compress_string($string) {
+  $string = gzcompress($string, 9);
+  $string = base64_encode($string);
+  $string = str_replace(array('+','/','='),array('-','_',''),$string);
+  return $string;
+}
+ 
+function relevant_answers_decompress_string($string) {
+    $string = str_replace(array('-','_'),array('+','/'),$string);
+    $mod4 = strlen($string) % 4;
+    if ($mod4) {
+        $string .= substr('====', $mod4);
+    }
+  $string = base64_decode($string);
+  return gzuncompress($string);
+}

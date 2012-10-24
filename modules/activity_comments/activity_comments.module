@@ -1,0 +1,94 @@
+<?php
+// $Id: game_ai.module,v 1.1.2.2 2008/12/24 17:47:49 morbus Exp $
+
+/**
+ * @file
+ * Enables users to leave comments on an activity.
+ */
+
+/**
+ * Implementation of hook_theme_registry_alter().
+ */
+function activity_comments_theme_registry_alter(&$theme_registry) {
+  $theme_registry['activity']['function'] = 'theme_activity_comment';
+}
+
+/**
+ * Replacement function for theme_activity(), to add a comment link.
+ */
+function theme_activity_comment($message, $item) {
+  $output = $item['mark'] .'<span class="activity activity-module-'. $item['module'] .' activity-type-'. $item['type'] .' activity-operation-'. $item['operation'] .'">'. $message .'</span>';
+  if (!user_is_anonymous()) { // only logged in users can comment; a click here shows the forms generated below.
+    $output .= '&nbsp;&nbsp;&nbsp;&mdash;&nbsp;<span class="activity-comments-click-to-show">'. t('Comment') .'</span>';
+    drupal_add_js(drupal_get_path('module', 'activity_comments') .'/activity_comments.js');
+    drupal_add_css(drupal_get_path('module', 'activity_comments') .'/activity_comments.css');
+    $output .= '<div class="activity-comments-form-hidden clear-block">'. drupal_get_form('activity_comments_comment_form', $item['aid']) .'</div>';
+  }
+
+  $activity_comments = activity_comments_load($item['aid']);
+  foreach ($activity_comments as $activity_comment) {
+    $comments[] = 
+    '<div class="activity-comment">'.
+      '<span class="activity-comment-author">'. theme('username', $activity_comment) .'</span> '.
+      '<span class="activity-comment-comment">'. check_plain($activity_comment->comment) .'</span>'.
+    '</div>';
+  }
+
+  $output .= theme('item_list', $comments);
+  return $output;
+}
+
+/**
+ * Returns a commenting form, keyed to a particular activity ID.
+ */
+function activity_comments_comment_form(&$form_state, $aid) {
+  $form['aid'] = array(
+    '#type'       => 'hidden',
+    '#value'      => $aid,
+  );
+  $form['activity-comment'] = array(
+    '#rows'       => 2,
+    '#type'       => 'textarea',
+    '#wysiwyg'    => FALSE,
+  );
+  $form['submit'] = array(
+    '#type'       => 'submit',
+    '#value'      => t('Comment'),
+    '#wysiwyg'    => FALSE,
+  );
+
+  return $form;
+}
+
+/**
+ * FAPI #submit callback for activity_comments_comment_form().
+ */
+function activity_comments_comment_form_submit($form, &$form_state) {
+  global $user;
+  $record             = new stdClass;
+  // oddly, when there are multiple forms on the page, the aid in
+  // values is always from the first rendered form. we use the
+  // value inside the post here to assign the right aid.
+  $record->aid        = $form_state['clicked_button']['#post']['aid'];
+  $record->timestamp  = time();
+  $record->uid        = $user->uid;
+  $record->comment    = $form_state['values']['activity-comment'];
+  drupal_write_record('activity_comments', $record);
+}
+
+/**
+ * Load comments saved to a particular activity.
+ *
+ * @param $aid
+ *   The activity ID to look for comments for.
+ * @return $comments
+ *   An array of comments found (possibly empty).
+ */
+function activity_comments_load($aid) {
+  $comments = array();
+  $results = db_query('SELECT ac.*, u.name, u.picture FROM {activity_comments} ac LEFT JOIN {users} u ON (u.uid = ac.uid) WHERE ac.aid = %d', $aid);
+  while ($result = db_fetch_object($results)) { // NP: 'Weather Experience' from The Prodigy's album 'Experience Expanded'; Unrated;
+    $comments[] = $result; // NP: 'Now Ya Know (Freshco & Miz)' from DJ Edan's album 'Fast Rap'; Unrated;
+  }
+  return $comments;
+}

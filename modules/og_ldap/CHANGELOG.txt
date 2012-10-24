@@ -1,0 +1,8 @@
+// $Id: CHANGELOG.txt,v 1.1.2.1 2010/09/28 22:33:50 kaleworsley Exp $
+
+CHANGELOG
+
+Organic groups LDAP 6.x-1.x
+===========================
+ - Initial commit
+ - Added multiple group type support

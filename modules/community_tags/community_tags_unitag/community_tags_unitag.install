@@ -1,0 +1,54 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * The install file for the community_tags_unitags module.
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function community_tags_unitag_install() {
+  // Install schema
+  drupal_install_schema('community_tags_unitag');
+
+  // Drop COMMUNITY_TAGS_UNITAG module weight so we act after unitag. We need it's nodeapi to run after unitag's
+  // so that unitag_suggestions are processed and available on the node object.
+  $weight = (int)db_result(db_query("SELECT weight FROM {system} WHERE name = 'unitag'"));
+  db_query("UPDATE {system} SET weight = %d WHERE name = 'community_tags_unitag'", $weight + 1);
+
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function community_tags_unitag_uninstall() {
+  drupal_uninstall_schema('community_tags_unitag');
+
+  variable_del('community_tags_unitag_settings');
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function community_tags_unitag_schema() {
+  $schema['community_tags_unitag'] = array(
+    'fields' => array(
+      'basename' => array('type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''),
+      'name' => array('type' => 'varchar', 'length' => 255, 'not null' => TRUE, 'default' => ''),
+      'nid' => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0),
+      'uid' => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0),
+      'vid' => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0),
+      'date' => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0),
+    ),
+    'indexes' => array(
+      'basename' => array('basename'),
+      'nid' => array('nid'),
+      'uid' => array('uid'),
+      'vid' => array('vid'),
+    ),
+    'primary key' => array('basename', 'uid', 'nid', 'vid'),
+  );
+  return $schema;
+}

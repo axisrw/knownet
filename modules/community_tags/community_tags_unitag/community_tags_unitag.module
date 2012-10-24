@@ -1,0 +1,340 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * community_tags_unitag.module
+ *
+ * A module to push communtity tags through the unitag pipeline.
+ *
+ * This module hooks into the tag moderation stage of community tags and uses
+ * unitag to 1) replace new tags with existing (e.g. synonyms) and 2) determine which
+ * new tags need moderation. New tags needing moderation are are added to the unitag
+ * moderation queue and also saved in a table provided by this module which stores the
+ * tagging user information with tags that are awaiting moderation.
+ *
+ * When the tags are approved via the unitags "term suggestions" form this module
+ * handles the form submission for all pending community tags before the unitag form
+ * form submission handler. New terms and tags are added accordingly with CT
+ * workflow adding node terms (via community_tags_node) as required. Handled terms
+ * are removed from the queue before the unitag form submit handler is run so
+ * that node terms are not added if not required.
+ *
+ * Note: I haven't used utid to link CT unitag suggestions with Unitag suggestions
+ * as unitag records are deleted and re-inserted and get new utid's in the process.
+ * Using basename instead.
+ */
+
+/**
+ * Implementation of hook_nodeapi(). On node insert and update unitag may have
+ * already pulled new terms for moderation and put them in $node->unitag_suggestions.
+ * We need to save the nid/uid/tag (no tid available yet) triple so the community
+ * tag can be created if and when the tag is approved or replaced with a synonmym or other
+ * alternative.
+ */
+function community_tags_unitag_nodeapi(&$node, $op, $teaser) {
+  global $user;
+
+  switch ($op) {
+    case 'insert':
+    case 'update':
+      if (isset($node->unitag_suggestions) && module_exists('community_tags_node')) {
+        // only do this if the community tags node synchronisation module is enabled
+        // and node term to community tag synchronisation is enabled.
+        foreach ($node->unitag_suggestions as $vid => $unitag_suggestions) {
+          if(_community_tags_node_is_opmode(COMMUNITY_TAGS_NODE_OPMODE_SYNC_NT_TO_CT, $vid, $node->type)
+            && _community_tags_unitag_is_enabled($vid, $node->type)) {
+            // node edit form mode - terms are correct but we need to record unitag suggestions against this user
+            _community_tags_unitag_save_unitag_suggestions($node->unitag_suggestions[$vid], $node, $user, $vid);
+          }
+        }
+      }
+      break;
+    case 'delete':
+      // Maintain referential integrity. Unitag doesn't do this yet so we'll do it here until it does.
+      db_query("DELETE FROM {community_tags_unitag} WHERE nid = %d", $node->nid);
+      db_query("DELETE FROM {unitag} WHERE nid = %d", $node->nid);
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_user().
+ *
+ * Handle user deletion.
+ */
+function community_tags_unitag_user($op, &$edit, &$user) {
+  if($op == 'delete') {
+    // maintain referential integrity
+    db_query("DELETE FROM {community_tags_unitag} WHERE uid = %d", $user->uid);
+  }
+}
+
+/**
+ * Implementation of hook_taxonomy().
+ * Handle vocabulary deletion. Unitag doesn't do this yet so we'll do it here until it does.
+ */
+function community_tags_unitag_taxonomy($op = NULL, $type = NULL, $vocabulary = NULL) {
+  if ($type == 'vocabulary' && $vocabulary['vid']) {
+    switch ($op) {
+      case 'delete':
+        db_query("DELETE FROM {community_tags_unitag} WHERE vid = %d", $vocabulary['vid']);
+        db_query("DELETE FROM {unitag} WHERE vid = %d", $vocabulary['vid']);
+        break;
+    }
+  }
+}
+
+/*****************************************************************************
+ * Form hooks for Community tags admin.
+ ****************************************************************************/
+/**
+ * Implementation of hook_form_FORM_ID_alter() for community tags settings form.
+ */
+function community_tags_unitag_form_community_tags_sub_settings_alter(&$form, &$form_state) {
+  // include admin.inc.
+  module_load_include('inc', 'community_tags_unitag', 'community_tags_unitag.admin');
+  _community_tags_unitag_sub_settings($form, $form_state);
+}
+
+/*****************************************************************************
+ * Form hooks for Unitag suggestions management form.
+ ****************************************************************************/
+/**
+ * Implementation of hook_form_FROM_ID_alter() for form id = unitag_manage_suggestions_form.
+ *
+ * Processes the form submission before unitag to act on suggestion moderation before suggestions
+ * are deleted.
+ */
+function community_tags_unitag_form_unitag_manage_suggestions_form_alter(&$form, &$form_state) {
+  array_unshift($form['#submit'], 'community_tags_unitag_unitag_manage_suggestions_form_submit');
+}
+
+/**
+ * Process manage suggestions form submission.
+ */
+function community_tags_unitag_unitag_manage_suggestions_form_submit($form, &$form_state) {
+  module_load_include('inc', 'community_tags_unitag', 'community_tags_unitag.admin');
+  return _community_tags_unitag_unitag_manage_suggestions_form_submit($form, $form_state);
+}
+
+/*****************************************************************************
+ * Community tags hook implementations.
+ ****************************************************************************/
+/**
+ * Implementation of hook_community_tags_moderate_tags_alter(). This method is called
+ * as part of both tagging and untagging events.
+ *
+ * @param &$tags_and_terms
+ *  An array of 'terms' and 'new tags'.
+ * @param $op
+ *  Either 'tag' or 'untag'.
+ *
+ * @see community_tags_tag() and community_tags_untag().
+ */
+function community_tags_unitag_community_tags_moderate_tags_alter(&$tags_and_terms, $op, $node, $user, $vid) {
+  if(_community_tags_unitag_is_enabled($vid, $node->type)) {
+    if($op == 'tag') {
+      if(!empty($tags_and_terms['new tags'])) {
+
+        $unitag_settings = _community_tags_unitag_get_settings($vid, $node->type);
+        $queue_new_tags = $unitag_settings['queue'] == 'all' || ($unitag_settings['queue'] == 'untrusted' && !_community_tags_user_is_trusted_tagger($user, $node));
+
+        $term_str = drupal_implode_tags($tags_and_terms['new tags']);
+        // get unitag to do it's thing
+        $unitag_result = unitag_taxonomy_terms_resolve_tags($vid, $term_str);
+
+        // handle case of no new terms
+        $unitag_suggestions = !empty($unitag_result['new']) ? $unitag_result['new'] : array();
+
+        $tags_and_terms['new tags'] = NULL;
+
+        // replace terms to be processed by community tags with ones allowed by unitag
+        // most usefully this may replace a new tag with an existing synonym
+        if($unitag_result['parsed']) {
+          // this is not tid indexed if unitag read-only mode is not set so can't rely on it
+          foreach($unitag_result['parsed'] as $tag) {
+            // new tag but unitag moderation is not enabled - may be sanitised only
+            // parsed existing terms are merged with new terms and tids overwritten - have to look up again
+            $possibility = unitag_taxonomy_get_term_by_name($tag, $vid);
+            if($possibility) {
+              $parsed_term = taxonomy_get_term($possibility->tid);
+              $tags_and_terms['terms'][$possibility->tid] = $parsed_term;
+            } else {
+              // we only get here if unitag read-only mode is disabled - but it may be enabled for
+              // community tag entry in which case add this to suggestions
+              if($queue_new_tags) {
+                $unitag_suggestions[] = $tag;
+              }
+              else {
+                $tags_and_terms['new tags'][] = $tag;
+              }
+            }
+          }
+        }
+
+        if(!empty($unitag_result['blacklisted'])) {
+          drupal_set_message(format_plural(count($unitag_result['blacklisted']), '%terms was not added.', '%terms were not added.', array('%terms' => implode(',', $unitag_result['blacklisted']))));
+        }
+
+        if(!empty($unitag_suggestions)) {
+          // save new tags as unitag suggestions
+          foreach ($unitag_suggestions as $suggestion) {
+            unitag_suggestion_save($node->nid, $vid, $suggestion);
+          }
+
+          // record unitag suggestions against this user
+          _community_tags_unitag_add_unitag_suggestions($unitag_suggestions, $node, $user, $vid);
+
+          drupal_set_message(format_plural(count($unitag_suggestions), 'New tag queued for approval.', '@count new tags queued for approval.'));
+        }
+      }
+
+    }
+    elseif ($op == 'untag') {
+      if(!empty($tags_and_terms['new tags'])) {
+        $unitag_suggestions = $tags_and_terms['new tags'];
+
+        // need to remove this suggestion from the unitag queue if no body else has suggested it
+        _community_tags_unitag_remove_unitag_suggestions($unitag_suggestions, $node, $user, $vid);
+        _community_tags_unitag_cleanup_redundant_suggestions($unitag_suggestions, $node->nid, $vid);
+      }
+    }
+  }
+}
+
+/**
+ * Implementation of hook_community_tags_get_user_node_tags_alter(). Adds
+ * users tags that are waiting for moderation and aren't yet terms.
+ */
+function community_tags_unitag_community_tags_get_user_node_tags_alter(&$tags, $user, $node, $vid) {
+  if(_community_tags_unitag_is_enabled($vid, $node->type)) {
+    $query = db_query("SELECT basename as tid, name, uid, nid FROM {community_tags_unitag} WHERE nid = %d AND uid = %d AND vid = %d", $node->nid, $user->uid, $vid);
+    while ($row = db_fetch_object($query)) {
+      // obviously not a tid but it's a unique identifier for the associative array of users tags.
+      $tags['new tags'][$row->tid] = $row->name;
+    }
+  }
+}
+
+/**
+ * Implementation of hook_community_tags_admin_operations(). Return a link
+ * to Unitag moderation queue if tags are waiting to be moderated.
+ */
+function community_tags_unitag_community_tags_admin_operations($vid, $content_type) {
+  // include admin.inc.
+  module_load_include('inc', 'community_tags_unitag', 'community_tags_unitag.admin');
+  return _community_tags_unitag_community_tags_admin_operations($vid, $content_type);
+}
+
+/**
+ * Implementation of hook_community_tags_admin_status(). Return the number
+ * of tags waiting to be moderated.
+ */
+function community_tags_unitag_community_tags_admin_status($vid, $content_type) {
+  // include admin.inc.
+  module_load_include('inc', 'community_tags_unitag', 'community_tags_unitag.admin');
+  return _community_tags_unitag_community_tags_admin_status($vid, $content_type);
+}
+
+
+/*****************************************************************************
+ * 'Private' functions.
+ ****************************************************************************/
+
+/**
+ * Get settings for combination of vocabulary and content type.
+ */
+function _community_tags_unitag_get_settings($vid, $content_type) {
+  $all_settings = variable_get('community_tags_unitag_settings', array());
+  $defaults = array('enabled' => TRUE, 'queue' => 'untrusted');
+  if(empty($all_settings[$vid]['types'][$content_type])) {
+    return $defaults;
+  }
+  else {
+    return array_merge($defaults, $all_settings[$vid]['types'][$content_type]);
+  }
+}
+
+/**
+ * Helper function for more succinct code...
+ */
+function _community_tags_unitag_is_enabled($vid, $content_type) {
+  $ct_settings = _community_tags_get_settings($vid, $content_type);
+  $ct_unitag_settings = _community_tags_unitag_get_settings($vid, $content_type);
+  return $ct_settings['enabled'] && $ct_unitag_settings['enabled'];
+}
+
+/**
+ * Remove suggestions from the unitag table for given node and
+ * vocabulary if it doesn't exist in the community_tags_unitag table.
+ */
+function _community_tags_unitag_cleanup_redundant_suggestions($unitag_suggestions, $nid, $vid) {
+  $basenames = array();
+  foreach ($unitag_suggestions as $suggestion) {
+    $basenames[] = _unitag_get_basename($suggestion);
+  }
+
+  $basename_placeholders = db_placeholders($basenames, 'varchar');
+
+  $sql =
+    "SELECT ut.utid, ut.name FROM {unitag} ut
+     LEFT JOIN {community_tags_unitag} ctu ON ctu.nid = ut.nid AND ctu.vid = ut.vid AND ctu.basename = ut.basename
+     WHERE ut.nid = %d AND ut.vid = %d AND ut.basename IN ($basename_placeholders) AND ctu.basename IS NULL";
+
+  $args = array($nid, $vid);
+  $args = array_merge($args, $basenames);
+
+  $query = db_query($sql, $args);
+
+  while ($row = db_fetch_object($query)) {
+    // remove this tag/node combination from unitag processing
+    unitag_suggestion_delete($row);
+  }
+}
+
+/**
+ * Save suggestions with against node and user. Delete first as will be supplied complete
+ * up to date list of suggestions.
+ */
+function _community_tags_unitag_save_unitag_suggestions($unitag_suggestions, $node, $user, $vid) {
+  // Insert new suggestions
+  db_lock_table('{community_tags_unitag}');
+
+  // delete existing suggestions because some may have been removed by user
+  foreach ($unitag_suggestions as $suggestion) {
+    // can't use utid as unitag records are deleted and re-inserted - so use basename
+    $basename = _unitag_get_basename($suggestion);
+    $date = time();
+    db_query("INSERT INTO {community_tags_unitag} (nid, uid, vid, name, basename, date) VALUES (%d, %d, %d, '%s', '%s', %d)", $node->nid, $user->uid, $vid, $suggestion, $basename, $date);
+  }
+
+  db_unlock_tables();
+}
+
+/**
+ * Add suggestions against node and user.
+ */
+function _community_tags_unitag_add_unitag_suggestions($unitag_suggestions, $node, $user, $vid) {
+  // Insert new suggestions
+  foreach ($unitag_suggestions as $suggestion) {
+    // can't use utid as unitag records are deleted and re-inserted - so use basename
+    $basename = _unitag_get_basename($suggestion);
+    $date = time();
+    db_query("INSERT INTO {community_tags_unitag} (nid, uid, vid, name, basename, date) VALUES (%d, %d, %d, '%s', '%s', %d)", $node->nid, $user->uid, $vid, $suggestion, $basename, $date);
+  }
+}
+
+/**
+ * Remove suggestions against node and user.
+ */
+function _community_tags_unitag_remove_unitag_suggestions($unitag_suggestions, $node, $user, $vid) {
+  // Insert new suggestions
+  foreach ($unitag_suggestions as $suggestion) {
+    // can't use utid as unitag records are deleted and re-inserted - so use basename
+    $basename = _unitag_get_basename($suggestion);
+    // $date = time();
+    db_query("DELETE FROM {community_tags_unitag} WHERE nid = %d AND uid = %d AND vid = %d AND basename = '%s'", $node->nid, $user->uid, $vid, $basename);
+  }
+}
+

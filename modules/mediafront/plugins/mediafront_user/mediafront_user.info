@@ -1,0 +1,22 @@
+; $Id: voting_service.info,v 1.6.2.1 2007/10/27 17:32:16 travist Exp $
+name = MediaFront User
+description = Adds a way to track what the user is listening to or watching.
+package = "MediaFront : Plugins"
+dependencies[] = mediafront
+dependencies[] = token
+version = VERSION
+core = 6.x
+
+; Information added by drupal.org packaging script on 2010-05-24
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "mediafront"
+datestamp = "1274659909"
+
+
+; Information added by drupal.org packaging script on 2010-11-13
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "mediafront"
+datestamp = "1289650440"
+

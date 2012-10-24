@@ -1,0 +1,63 @@
+/* $Id$ */
+
+.fbsmp-icon-list {
+  clear: both;
+}
+
+.fbsmp-icon-list div {
+  float: left;
+}
+
+.fbsmp-icon-list input {
+  margin: 0;
+  padding: 0.5em;
+}
+
+.fbsmp-attach-text {
+  display: none;
+}
+
+#facebook-status-box #edit-fbss-submit {
+  clear: both;
+}
+
+.fbsmp-link-header, .fbsmp-photo-header, .fbsmp-video-header {
+	margin-bottom:10px;
+	min-height:15px;
+}
+
+input#edit-fbsmp-link-attach{
+	margin-bottom: .5em;
+	clear:both;	
+}
+
+.link-message, .photo-message, .video-message {
+	float:left;	
+}
+
+input#edit-cancel {
+	float:right;
+	margin:0px;	
+}
+
+input#edit-link-icon, input#edit-photo-icon, input#edit-video-icon {
+	margin:0px;	
+}
+
+.fbsmp-wrapper-outer {
+	display:block;
+	clear:left;	
+	float:left;
+  min-width: 300px;
+}
+
+.fbsmp-inner-collapsed {
+	min-height:20px;	
+}
+
+.fbsmp-inner-expanded {
+	border: 1px solid #CCC;
+	margin-top:10px;
+  margin-bottom: 10px;
+  padding: 5px;
+}

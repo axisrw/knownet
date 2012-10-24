@@ -1,0 +1,14 @@
+/* $Id: birthdays.css,v 1.2.2.1 2009/02/03 09:33:27 maartenvg Exp $ */
+#birthdays-page-filter input {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.birthdays-filter {
+  text-align: right;
+}
+
+.birthdays-container div,
+.birthdays-container label {
+  display: block;
+}

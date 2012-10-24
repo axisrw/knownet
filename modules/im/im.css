@@ -1,0 +1,83 @@
+/* $Id: im.css,v 1.1.2.3 2009/07/13 14:23:55 pahariwalla Exp $ */
+
+div.im-friendlist {
+  /*width: 200px;*/
+  margin-bottom: 5px;
+  text-align: left;
+}
+
+
+div.im-friendlist .im-friends {
+  float: left;
+  width: 90%;
+  padding: 2px;
+  border: 1px solid #999;
+  background-color: #eee;
+  font-size: 100%;
+}
+
+div.im-friendlist .status {
+  padding: 2px;;
+  width: 100px;
+  border: 1px solid #333;
+  background-color: #eee;
+  font-size: 100%;
+}
+
+/*#im-command-line {*/
+/*  height:100px;*/
+/*  overflow: auto;  */
+/*}*/
+
+
+#im-display-console-msgs {
+  border: 1px solid black;
+  color:black;
+}
+
+.im-console-msg-name {
+  font-weight: bold;
+  color:black;
+}
+
+.im-console-my-msgtext {
+  color: red;
+}
+
+.im-console-other-msgtext {
+  color: blue;
+}
+
+
+#im-console-wrapper {
+
+}
+
+#im-console-caption {
+  font-weight: bold;
+}
+
+#im-console-caption-text {
+  font-weight: bold;
+}
+
+#speakerIcon {
+  float: right;
+  margin-right:10px;
+}
+
+.im-console-speaker-icon{
+  float: right;
+  margin-right:10px;
+}
+
+#im-console-msgs {
+  /*float: left;*/
+  width: 180px;
+  height:100px;
+  overflow: auto;
+  padding: 1px;
+  border: 1px solid #999;
+  background-color: #fff;
+  font-size: 100%;    
+}

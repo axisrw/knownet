@@ -1,0 +1,129 @@
+<?php
+/*$Id: cdn2.install,v 1.3.2.8 2009/11/12 22:53:55 ocyrus Exp $*/
+
+/**
+ * Implementation of hook_install().
+ */
+function cdn2_install() {
+  // Create tables.
+  drupal_install_schema('cdn2');
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function cdn2_uninstall() {
+  // Remove tables
+  drupal_uninstall_schema('cdn2');
+}
+
+function cdn2_schema() {
+  $schema = array();
+  $schema['cdn2_videos'] = array(
+    'description' => 'Holds our Video informaiton.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary Key: Id for videos',
+      ),
+      'nid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Node ID',
+      ),
+      'video_token' => array(
+        'type' => 'varchar',
+        'length' => 36,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => "Video token for cdn2 video.",
+      ),
+      'preset_name' => array(
+        'type' => 'varchar',
+        'length' => 50,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => "Preset name for video type.",
+      ),
+      'status' => array(
+        'type' => 'varchar',
+        'length' => 20,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => "Current status of video.",
+      ),
+      'asset_fetch_url' => array(
+        'type' => 'text',
+        'not null' => TRUE,
+        'default' => '',
+        'description' => "The fetch url for the asset.",
+      ),
+      'file_size' => array(
+        'type' => 'varchar',
+        'length' => 50,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => "File Size.",
+      ),
+      'video_length' => array(
+        'type' => 'varchar',
+        'length' => 50,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => "File Size.",
+      ),
+    ),
+    'primary key' => array('id'),
+  );
+  $schema['cdn2_video_node'] = array(
+    'description' => 'Node Table for cdn2',
+    'fields' => array(
+      'vid' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary Key: Id for videos',
+      ),
+      'nid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Node ID',
+      ),
+      'video_token' => array(
+        'type' => 'varchar',
+        'length' => 36,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => "Video Token",
+      ),
+      'splash_image_number' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Splash Image Number',
+      ),
+      'is_submitted' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Boolean for is_submitted',
+      ),
+    ),
+    'primary key' => array('vid'),
+  );
+  return $schema;
+}
+
+function cdn2_update_1() {
+  $ret = array();
+  db_add_field($ret, 'cdn2_video_node', 'splash_image_number', array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'default' => 0, ));
+  return $ret;
+}

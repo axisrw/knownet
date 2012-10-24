@@ -1,0 +1,13 @@
+; $Id: cdn2_flowplayer.info,v 1.3.2.3 2009/01/02 01:14:11 akalsey Exp $
+
+name = CDN2 FlowPlayer
+description = Integrates the popular FlowPlayer FLV player into CDN2
+package = Media
+dependencies[] = cdn2
+core = 6.x
+; Information added by drupal.org packaging script on 2009-12-10
+version = "6.x-1.10"
+core = "6.x"
+project = "cdn2"
+datestamp = "1260472815"
+

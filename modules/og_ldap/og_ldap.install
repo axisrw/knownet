@@ -1,0 +1,28 @@
+<?php
+// $Id: og_ldap.install,v 1.1.2.1 2010/10/03 22:20:44 kaleworsley Exp $
+/**
+ * @file
+ * Map LDAP DNs or RDNs to Organic groups.
+ *
+ * @author Kale Worsley kale@egressive.com
+ */
+
+
+/**
+ * Rename variables.
+ */
+function og_ldap_update_6000() {
+  $group = variable_get('og_ldap_group_type', '');
+  variable_set('og_ldap_attribute_'. $group, variable_get('og_ldap_attribute', ''));
+  variable_set('og_ldap_value_'. $group, variable_get('og_ldap_value', ''));
+  variable_set('og_ldap_ldap_only_'. $group, variable_get('og_ldap_ldap_only', ''));
+  variable_set('og_ldap_groups_'. $group, variable_get('og_ldap_groups', ''));
+  variable_set('og_ldap_'. $group, TRUE);
+
+  variable_del('og_ldap_group_type');
+  variable_del('og_ldap_attribute');
+  variable_del('og_ldap_value');
+  variable_del('og_ldap_ldap_only');
+  variable_del('og_ldap_groups');
+  variable_del('og_ldap_group_type');
+}

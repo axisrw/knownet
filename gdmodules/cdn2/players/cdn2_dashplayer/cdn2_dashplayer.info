@@ -1,0 +1,22 @@
+; $Id: cdn2_dashplayer.info,v 1.3.2.4 2009/10/15 17:04:11 acstewart Exp $
+
+name = CDN2 Dash Media Player
+description = Integrates the Dash Media player module into CDN2
+package = Media
+dependencies[] = cdn2
+dependencies[] = dashplayer
+dependencies[] = flashvideo
+core = 6.x
+; Information added by drupal.org packaging script on 2009-10-07
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "cdn2"
+datestamp = "1254917178"
+
+
+; Information added by drupal.org packaging script on 2009-12-10
+version = "6.x-1.10"
+core = "6.x"
+project = "cdn2"
+datestamp = "1260472815"
+

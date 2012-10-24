@@ -1,0 +1,26 @@
+<?php
+// $Id$
+/**
+ * @file community_tags_rules.module
+ *
+ * Rules integration for community tags module. Implements community tags hooks
+ * and fires rules events.
+ */
+
+/**
+ * Implementation of hook_community_tags_tagged().
+ */
+function community_tags_rules_community_tags_tagged($node, $user, $terms, $vid) {
+  foreach($terms as $term) {
+    rules_invoke_event('community_tags_tagged', $user, $node, $term, $vid);
+  }
+}
+
+/**
+ * Implementation of hook_community_tags_untagged().
+ */
+function community_tags_rules_community_tags_untagged($node, $user, $terms, $vid) {
+  foreach($terms as $term) {
+    rules_invoke_event('community_tags_untagged', $user, $node, $term, $vid);
+  }
+}

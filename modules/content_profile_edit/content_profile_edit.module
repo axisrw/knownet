@@ -1,0 +1,186 @@
+<?php
+// $Id: content_profile_edit.module,v 1.1.2.32 2009/09/23 11:56:50 Solide Exp $
+
+/**
+ * @file
+ * Allows exposure and processing of content_profile node fields at user modification
+ */
+
+/**
+ * Implementation of hook_form_alter().
+ */
+function content_profile_edit_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'user_profile_form') {
+    require_once drupal_get_path('module', 'node') .'/node.pages.inc';
+
+    // Allow other modules to customize the used profile types, so modules
+    // can easily customize the modification form.
+    $default_types = content_profile_get_types('names');
+    $form += array('#content_profile_edit_use_types' => $default_types);
+
+    foreach ($form['#content_profile_edit_use_types'] as $type => $typename) {
+      content_profile_edit_modify_profile_form($type, $form, $form_state);
+    }
+	unset($form['account']['#title']);
+	unset($form['account']['#type']);
+	unset($form['comment_settings']);
+	unset($form['timezone']);
+	unset($form['menu']);
+	unset($form['revision_information']);
+	unset($form['options']);
+	unset($form['account']['mail']['#description']);
+	unset($form['account']['name']['#description']);
+	unset($form['account']['pass']['#description']);
+	unset($form['account']['pass']);
+	$form['buttons']['#weight'] = 40; // buttons at the bottom
+	$form['account']['name']['#size'] = 20;
+	$form['account']['mail']['#size'] = 20;
+	$form['title']['#size'] = 20;
+	$form['field_uprofile_location']['#size'] = 20;
+	$form['field_country']['#size'] = 20;
+	$form['field_date_birth']['#size'] = 20;
+  }
+   if ($form_id == 'user_register') {
+   
+	unset($form['#title']);
+	unset($form['#type']);
+	$form['comment_settings']['#access'] = FALSE;
+	unset($form['timezone']);
+	$form['menu']['#access'] = FALSE;
+	$form['title']['#access'] = True;
+	$form['revision_information']['#access'] = FALSE;
+	$form['options']['#access'] = FALSE;
+	unset($form['mail']['#description']);
+	unset($form['name']['#description']);
+	unset($form['pass']['#description']);
+
+	$form['name']['#size'] = 30;
+	$form['mail']['#size'] = 30;
+	$form['title']['#size'] = 30;
+	
+	$form['public']['picture']['picture_upload'] = array(
+'#type' => 'file', '#title' => t('Upload picture'),
+'#size' => 48, 
+'#description' => t('Your virtual face or picture.  Maximum dimensions are %dimensions and the maximum size is %size kB.', array('%dimensions' => variable_get('user_picture_dimensions', '85x85'), '%size' => variable_get('user_picture_file_size', '30'))) .' '. variable_get('user_picture_guidelines', ''));
+  }
+}
+
+function theme_uprofile_node_form($form) {
+	//print 'Hi';
+}
+
+/**
+ * Helper function to return all available fields for a particular content type.
+ *
+ * @param string $type
+ *   The content type to return fields for.
+ * @return array
+ *   Associated fields for the given content type.
+ */
+function _content_profile_edit_get_fields($type) {
+  $typeinfo = content_types($type);
+  return $typeinfo['fields'];
+}
+
+/**
+ * Returns an array of selectable form elements that may be hidden, mostly containing CCK fields.
+ *
+ * @param string $type
+ *   A content type to get the select elements for.
+ * @return Array
+ *   An array of fields suitable for use in a select field.
+*/
+function _content_profile_edit_get_field_select($type) {
+  $fields = module_exists('content') ? _content_profile_edit_get_fields($type) : array();
+  $return = array();
+  if (!module_exists('auto_nodetitle') || auto_nodetitle_get_setting($type) != AUTO_NODETITLE_ENABLED) {
+    $return['title'] = t('Title');
+  }
+  foreach ($fields as $fieldname => $info) {
+    if (!$info['required']) {
+      $return[$fieldname] = drupal_ucfirst($info['widget']['label']);
+    }
+  }
+  $return['other'] = t('Other form elements (except for required CCK fields)');
+  
+  return $return;
+}
+
+function content_profile_edit_modify_profile_form($type, &$form, &$form_state) {
+  // Fetch profile node and add in its form.
+  $node = content_profile_load($type, $form['#uid']);
+  if (!$node)
+    $node = array('uid' => $form['#uid'], 'type' => $type);
+
+  // Get the original node form.
+  $node_form = drupal_retrieve_form($type .'_node_form', $form_state, $node);
+  drupal_prepare_form($type .'_node_form', $node_form, $form_state);
+
+  foreach($node_form as $key => $value) {
+    if(in_array($key, array('#id', 'form_id', 'form_token', '#token', '#action', '#parameters', 'author'))) continue;
+    if(in_array($key, array('#submit', '#validate'))) {
+      $form[$key] = array_merge($form[$key], $value);
+      continue;
+    }
+    $form[$key] = $value;
+  }
+  $form['author']['name']['#default_value'] = $form['account']['name']['#default_value'];
+  unset($form['uid']);
+  unset($form['name']);
+  unset($form['submit']);
+  unset($form['delete']);
+  
+  // Add custom submit and validation handlers.
+  $form['#submit'][] = 'content_profile_edit_user_modify_submit';
+  $form['#validate'][] = 'content_profile_edit_user_modify_validate';
+  
+  // Remove user.module submit handler here, we only want it to be triggered on save, not on preview.
+  // We will call it ourselves from our save handler.
+  $form['#submit'] = array_diff($form['#submit'], array('user_profile_form_submit'));
+  $form['#validate'] = array_diff($form['#validate'], array('user_profile_form_validate'));
+  
+  // Also remove node validation.  We will call node_validate ourselves from content_profile_edit_user_modify_validate()
+  $form['#validate'] = array_diff($form['#validate'], array('node_form_validate'));
+  
+  // Add delete link.
+  $form['delete'] = array(
+    '#value' => l(t('Delete'), 'user/'.$form['#uid'].'/delete', array('attributes' => array('class' => 'user-delete-link'), 'query' => array('destination' => $_GET['destination'] ? $_GET['destination'] : '<front>'))),
+    '#weight' => 99,
+  );
+}
+
+
+/**
+ * Validates the user edit form
+ */
+function content_profile_edit_user_modify_validate($form, &$form_state) {
+  
+  // Make sure the language setting saves.
+  if ($form_state['clicked_button']['#post']['language']) {
+    $form_state['values']['language'] = $form_state['clicked_button']['#post']['language'];
+  }
+  
+  user_profile_form_validate($form, $form_state);
+  $node = $form['#node'];
+  if($form_state['clicked_button']['#id'] === 'edit-submit'){
+      $node = $node->_account;
+  }
+  require_once drupal_get_path('module', 'node') .'/node.pages.inc';
+  $node->changed = strtotime(date("Y-m-d H:i:s"));
+  unset($node->name);
+  node_validate($node, $form);
+}
+
+/**
+ * Submits the user edit form
+ */
+function content_profile_edit_user_modify_submit($form, &$form_state) {
+  if($form_state['clicked_button']['#id'] === 'edit-submit'){
+      user_profile_form_submit($form, $form_state);
+      $node = $form['#node'];
+      $node = node_submit($node, $form);
+      node_save($node, $form);
+  }
+  
+
+}

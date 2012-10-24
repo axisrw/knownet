@@ -1,0 +1,145 @@
+/* $Id: cdn2.css,v 1.3.2.6 2009/11/12 22:53:55 ocyrus Exp $ */
+
+/* Caution! Ensure accessibility in print and other media types... */
+@media projection, screen { /* Use class for showing/hiding tab content, so that visibility can be better controlled in different media types... */
+    .ui-tabs-hide {
+        display: none !important;
+    }
+}
+
+/* Hide useless elements in print layouts... */
+@media print {
+    .ui-tabs-nav {
+        display: none;
+    }
+}
+
+/* Skin */
+.ui-tabs-nav, .ui-tabs-panel {
+    font-size: 10px;
+}
+.ui-tabs-nav {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 3px;
+}
+.ui-tabs-nav:after { /* clearing without presentational markup, IE gets extra treatment */
+    display: block;
+    clear: both;
+    content: " ";
+}
+ul.ui-tabs-nav {
+  list-style: none;
+}
+.ui-tabs-nav li {
+    float: left;
+    margin: 0 0 0 -15px;
+    list-style: none;
+    background: transparent;
+    padding-right: 5px;
+}
+.ui-tabs-nav a, .ui-tabs-nav a span {
+    float: left; /* fixes dir=ltr problem and other quirks IE */
+    padding: 0 12px;
+    margin:0px;
+    background: transparent;
+}
+.ui-tabs-nav a {
+    padding: 0;
+    background-position: 100% 0;
+    text-decoration: none;
+    white-space: nowrap; /* @ IE 6 */
+    outline: 0; /* @ Firefox, prevent dotted border after click */    
+}
+.ui-tabs-nav .ui-tabs-selected a {
+    position: relative;
+    font-weight: bold;
+    z-index: 2;
+}
+.ui-tabs-nav a span {
+    padding-right: 15;
+}
+.ui-tabs-nav .ui-tabs-selected a span {
+    padding-top: 0;
+    background: transparent url(/themes/garland/images/bg-tab.png) repeat-x scroll 0 50%;
+    color: #fff;
+}
+.ui-tabs-nav .ui-tabs-selected a:link, .ui-tabs-nav .ui-tabs-selected a:visited,
+.ui-tabs-nav .ui-tabs-disabled a:link, .ui-tabs-nav .ui-tabs-disabled a:visited { /* @ Opera, use pseudo classes otherwise it confuses cursor... */
+    cursor: text;
+}
+.ui-tabs-nav a:hover, .ui-tabs-nav a:focus, .ui-tabs-nav a:active,
+.ui-tabs-nav .ui-tabs-unselect a:hover, .ui-tabs-nav .ui-tabs-unselect a:focus, .ui-tabs-nav .ui-tabs-unselect a:active { /* @ Opera, we need to be explicit again here now... */
+    cursor: pointer;
+    text-decoration: none;
+    background: transparent url(/themes/garland/images/bg-tab.png) repeat-x scroll 0 50%;
+    color: #fff;
+}
+.ui-tabs-disabled {
+    opacity: .4;
+    filter: alpha(opacity=40);
+}
+.ui-tabs-nav .ui-tabs-disabled a:link, .ui-tabs-nav .ui-tabs-disabled a:visited {
+    color: #000;
+}
+.ui-tabs-panel {
+    border: 1px solid #ccc;
+    padding: 10px;
+    background: #fff; /* declare background color for container to avoid distorted fonts in IE while fading */
+}
+/*.ui-tabs-loading em {
+    padding: 0 0 0 20px;
+    background: url(loading.gif) no-repeat 0 50%;
+}*/
+
+/* Additional IE specific bug fixes... */
+* html .ui-tabs-nav { /* auto clear @ IE 6 & IE 7 Quirks Mode */
+    display: inline-block;
+}
+*:first-child+html .ui-tabs-nav  { /* auto clear @ IE 7 Standards Mode - do not group selectors, otherwise IE 6 will ignore complete rule (because of the unknown + combinator)... */
+    display: inline-block;
+}
+
+fieldset#cdn2_presets_fieldset div.form-item label.option
+{
+	float:left;
+}
+
+fieldset#cdn2_presets_fieldset div.form-item div
+{
+	float: left;
+}
+
+iframe.cdn2 {
+  border: 0;
+}
+
+div.cdn2_video_asset
+{
+	float:left;
+	padding-right: 1.1em;
+}
+
+div.cdn2_metadata
+{
+	float:left;
+}
+
+
+div.video
+{ 
+    position: relative;
+}
+.button_play
+{ 
+    position: absolute; 
+    top: 20px; 
+    left: 20px; 
+    width: 46px; 
+    height: 46px; 
+    background: url(images/button_play.gif) no-repeat;
+    opacity:0.8; 
+    filter:alpha(opacity=80)
+}
+div.cdn2_images_form .form-item {float: left}
+div.cdn2_images_form .form-radio {margin-left: 100px;}

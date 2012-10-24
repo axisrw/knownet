@@ -1,0 +1,16 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * The install file for the community_tags_ui module.
+ */
+
+/**
+ * Implementation of hook_install().
+ */
+function community_tags_ui_install() {
+  // Drop COMMUNITY_TAGS_UI module weight so we act after community_tags has added it's links etc.
+  $weight = (int)db_result(db_query("SELECT weight FROM {system} WHERE name = 'community_tags'"));
+  db_query("UPDATE {system} SET weight = %d WHERE name = 'community_tags_ui'", $weight + 1);
+}

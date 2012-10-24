@@ -1,0 +1,54 @@
+<?php
+
+function cdn2_dashplayer_cdn2_player($type = '') {
+  switch ($type) {
+    case 'flash':
+      return array(
+        'dashplayer' => array(
+          'title' => t('Dash Media Player'),
+          'source url' => 'http://drupal.org/project/dashplayer',
+          'theme function' => 'cdn2_dashplayer'
+        )
+      );
+  }
+}
+
+function theme_cdn2_dashplayer($node, $asset, $preset, $width, $height) {
+  $dash_player_content = '';
+
+  $presets = array(
+    'width' => $width,
+    'height' => $height,
+    'file' => $asset['asset_fetch_url']
+  );
+  ob_start();
+  dashplayer_get_player($presets);
+  $dash_player_content = ob_get_clean();
+  return sprintf('<div id="dashplayer-%s-%s">'. $dash_player_content .'</div>', $node->nid, $preset->shortName);
+}
+
+function _cdn2_dashplayer_get_js($nid, $preset_name, $player_path, $width, $height, $video_url, $splash_image_file) {
+  $js = "
+flashembed('dashplayer-%s-%s', 
+{
+  src:'%s',
+  width: %s, 
+  height: %s
+},
+{
+  config: {   
+    autoPlay: false,
+    autoBuffering: false,
+    showVolumeSlider: true,
+    controlsOverVideo: 'locked',
+    controlBarBackgroundColor: -1,
+    controlBarGloss: 'low',
+    initialScale: 'fit',
+    videoFile: '%s',
+    loop: false,
+    splashImageFile: '%s'
+  }
+} 
+);";
+  return sprintf($js, $nid, $preset_name, $player_path, $width, $height, $video_url, $splash_image_file);
+}

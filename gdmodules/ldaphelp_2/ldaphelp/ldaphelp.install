@@ -1,0 +1,27 @@
+<?php
+/**
+ * @file
+ * install file for ldaphelp module
+ *
+ */
+
+
+/**
+ * Implementation of hook_install().
+ */
+function ldaphelp_install() {
+
+  $ret = array();
+
+  return $ret;
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function ldaphelp_uninstall() {
+
+  $ret = array();
+
+  return $ret;
+}

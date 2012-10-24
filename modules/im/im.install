@@ -1,0 +1,77 @@
+<?php
+// $Id: im.install,v 1.1.4.2 2009/03/18 04:00:00 pahariwalla Exp $
+
+
+function im_install() {
+  drupal_install_schema('im');
+}
+
+function im_uninstall() {
+  drupal_uninstall_schema('im');
+}
+
+function im_schema(){
+  $schema['im_msg'] = array(
+    'description' => t('Holds im messsage'),
+    'fields' => array(
+      'mid' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'description'=> t('Auto increment'),
+      ),
+      'suid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description'=> t('The {users}uid of the sender of the message'),
+      ),
+      'sname' => array(
+        'type' => 'varchar',
+        'length' => 60,
+        'not null' => TRUE,
+        'default' => '',
+        'description'=> t('The {users}name of the sender of the message'),
+      ),
+      'ruid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description'=> t('The {users}uid of the recipient of the message'),
+      ),
+      'rname' => array(
+        'type' => 'varchar',
+        'length' => 60,
+        'not null' => TRUE,
+        'default' => '',
+        'description'=> t('The {users}name of the recipient of the message'),
+      ),
+      'msg' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description'=> t('The text of the message being sent'),
+      ),
+      'sent_time' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'default' => 0,
+        'description'=> t('The time the message was sent'),
+      ),
+      'received_time' => array(
+        'type' => 'datetime',
+        'not null' => TRUE,
+        'default' => 0,
+        'description'=> t('The time the message was received by the recipient'),
+      ),
+    ),
+    'primary key' => array('mid'),
+    'indexes' => array(
+      'sender_uid' =>  array('suid'),
+      'recipient_uid' => array('ruid'),
+    ),
+  );
+  
+  return $schema;
+    
+}

@@ -1,0 +1,1186 @@
+<?php
+// $Id: simplereservation.module,v 1.5 2010/02/23 19:12:22 jwendebaum Exp $
+
+/**
+ * @file
+ * This module allows the definition of bookable items.
+ *
+ */
+
+$mypath = drupal_get_path('module', 'simplereservation');
+
+/**
+ * Implementation of hook_help().
+ */
+function simplereservation_help($path) {
+  $output = '';
+  switch ($path) {
+    case 'admin/help#simplereservation':
+      $output = '<p>'.  t("The Simple Reservation module allows to create any number of user-defined bookable items. The items may have a description and a comment.") .'</p>';
+      return $output;
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function simplereservation_perm() {
+  return array( 'access simple reservations',
+              'add simple reservations',
+              'add simple reservations for others',
+              'edit own simple reservations',
+              'edit simple reservations of others',
+              'delete own simple reservations',
+              'delete simple reservations of others',
+              'unrestricted simple reservations',
+              'administer simple reservation system',
+              'administer simple reservation triggers');
+} // function newmodule_perm
+
+/**
+ * Implementation of hook_menu_alter
+ */
+function simplereservation_menu_alter(&$items) {
+  // By default, the trigger system uses the module name 
+  // (i.e. example) as the access for the trigger
+  // configuration menu item.  we want to change that.
+  $items['admin/build/trigger/simplereservation']['access arguments'] = array('administer simple reservation triggers');
+}
+
+/**
+ * Implementation of hook_hook_info
+ */
+function simplereservation_hook_info() {
+  // Define triggers
+  $items = array(
+    'simplereservation' => array(
+      'simplereservation' => array(
+        'new_reservation' => array(
+          'runs when' => t('A new (simple) reservation has been created.'),
+        ),
+        'delete_reservation' => array(
+          'runs when' => t('A new (simple) reservation has been deleted.'),
+        ),
+      ),
+    ),
+  );
+  return $items;
+}
+
+/**
+ * Invoke trigger
+ *
+ * This function is a wrapper/helper for triggers/hooks
+ *
+ * @param $hook
+ *   string describing hook
+ * @param $op
+ *   string describing operation
+ * @return
+ *   boolean, true or false if successful
+ */
+function simplereservation_invoke_hook($hook = 'example', $op = null, $object = null) {
+  
+  // Perform hook invoke
+  module_invoke_all($hook, $op);
+  
+  // Call trigger/actions
+  if (function_exists('_trigger_get_hook_aids')) {
+    $aids = _trigger_get_hook_aids($hook, $op);
+  }
+  
+  $context = array('hook' => $hook, 'op' => $op);
+  if ($aids) {
+    actions_do(array_keys($aids), $object, $context);
+  }
+
+return true;
+}
+
+/**
+ * Implementation of hook_action_info_alter
+ */
+function simplereservation_action_info_alter(&$info) {
+
+ foreach ($info as $type => $data) {
+     if (stripos($type, "user_") === 0 || stripos($type, "system_") === 0) {
+       if (isset($info[$type]['hooks']['application'])) {
+         array_merge($info[$type]['hooks']['simplereservation'], array('new_reservation', 'delete_reservation'));
+       }
+       else {
+         $info[$type]['hooks']['simplereservation'] = array('new_reservation', 'delete_reservation');
+       }
+     }
+   }
+
+}
+
+
+/**
+ * Implementation of hook_menu().
+ */
+function simplereservation_menu() {
+  global $user;
+  $items = array();
+
+  $items['admin/settings/simplereservation'] = array(
+    'title' => 'Simple Reservation',
+    'description' => 'Configure the reservation system and the items which are available for reservation.',
+    'page callback' => 'simplereservation_admin_main_page',
+    'access arguments' => array('administer simple reservation system'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/settings/simplereservation/delete/%'] = array(
+    'title' => 'Delete item',
+    'description' => 'Delete an item from the reservation system.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('simplereservation_item_delete_confirm', 4),
+    'access arguments' => array('administer simple reservation system'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/settings/simplereservation/edit/%'] = array(
+    'title' => 'Edit item',
+    'description' => 'Edit an item from the reservation system.',
+    'page callback' => 'simplereservation_item_edit',
+    'page arguments' => array(4),
+    'access arguments' => array('administer simple reservation system'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/settings/simplereservation/showall/%'] = array(
+    'title' => 'List Reservations',
+    'description' => 'Display a list of all/upcoming reservations.',
+    'page callback' => 'simplereservation_showall_reservations',
+    'access arguments' => array('administer simple reservation system'),
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['simplereservation'] = array(
+    'title' => 'Reservation',
+    'description' => 'Main page of the simple reservation system.',
+    'page callback' => 'simplereservation_main_view',
+    'access arguments' => array('access simple reservations'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['simplereservation/add'] = array(
+    'title' => 'Add reservation',
+    'description' => 'Add a reservation into the simple reservation system.',
+    'page callback' => 'simplereservation_reservation_add',
+    'access arguments' => array('add simple reservations'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['simplereservation/edit'] = array(
+    'title' => 'Edit reservation',
+    'description' => 'Edit an existing reservation.',
+    'page callback' => 'simplereservation_reservation_edit',
+    'access arguments' => array('edit own simple reservations'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['simplereservation/delete/%'] = array(
+    'title' => 'Delete reservation',
+    'description' => 'Delete a reservation from the reservation system.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('simplereservation_reservation_delete_confirm', 2),
+    'access arguments' => array('delete own simple reservations'),
+    'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function simplereservation_theme() {
+  return array(
+    // Custom theme function for preprocessing variables
+    'simplereservation_theming' => array( 'arguments' => array('config' => NULL),
+    ),
+    // Default block layout
+    'simplereservation_week' => array(
+    'template' => 'simplereservation_week',
+    'arguments' => array('config' => NULL, 'reservations' => NULL),
+    ),
+  );
+}
+
+
+/**
+ * Custom theme function for preprocessing the output
+ */
+function theme_simplereservation_theming($config) {
+  // Set up variables which might be needed in the templates
+
+  $week_max = date_iso_weeks_in_year($dateweek[0]);
+  $months = date_month_names();
+
+  // get current week and year
+  $week = date("W");
+  $year = date("Y");
+
+  // if given, take the arguments as week/year
+  if ( is_numeric(arg(1) ))
+  $week = arg(1);
+
+  if ( is_numeric(arg(2) ))
+  $year = arg(2);
+
+  $dateweek = date_week_range($week, $year);
+  $date = strtotime($year ."-W". $week);
+
+  //print (date_format_date($dateweek[0], "SHORT")." ");
+
+  $config["week"] = $week;
+
+  $config["prev_week"] = $week - 1;
+  $config["prev_week_year"] = $year;
+  $config["prev_4week"] = $week - 4;
+  $config["prev_4week_year"] = $year;
+  if (date("z", $date) < 7)  { //if ($week == 1)
+    $config["prev_week"] = 52;
+    $config["prev_week_year"] = $year-1;
+    $config["prev_4week"] = 48;
+    $config["prev_4week_year"] = $year-1;
+  }
+
+  if ($week+4 > $week_max)   {
+    $config["next_4week"] = 2;
+    $config["next_4week_year"] = $year+1;
+  }
+  else   {
+    $config["next_4week"] = $week + 4;
+    $config["next_4week_year"] = $year;
+  }
+
+  if ($week+1 > $week_max)   {
+    $config["next_week"] =  2;
+    $config["next_week_year"] = $year+1;
+  }
+  else   {
+    $config["next_week"] = $week + 1;
+    $config["next_week_year"] = $year;
+  }
+
+  $config["month"] = $months[(int)date('m', $date)];
+  $config["week"] = $week;
+  $config["year"] = $year;
+
+  $d = $dateweek[0];
+
+  for ($i = 0; $i<=7; $i++)   {
+    $week_dates[$i] = $d;
+    $d = drupal_clone($d);
+    date_modify($d, "+1 day");
+  }
+  // move forwards to the last day of the week
+
+  $empty["rid"] = 0;
+
+  //$reservations = array('a', 'b', 'c', 'd');
+
+  $config["calendar"] = array(
+    0 => $week_dates[0],
+    1 => $week_dates[1],
+    2 => $week_dates[2],
+    3 => $week_dates[3],
+    4 => $week_dates[4],
+    5 => $week_dates[5],
+    6 => $week_dates[6],
+    7 => $week_dates[7],
+    );
+
+  $reservations = array();
+
+  $sql = "SELECT * FROM {simplereservation_reservation} ";
+  $sql .= "INNER JOIN {simplereservation_item} ON iid=item_id ";
+  $sql .= "WHERE (begin>=%d AND begin<=%d) ";   // Beginn zwischen heute und morgen
+  $sql .= "OR (ending>=%d AND ending<=%d) ";    // Ende zwischen heute und morgen
+  $sql .= "OR (begin < %d AND ending > %d) ";   // bereits begonnen und Ende in der Zukunft
+  $sql .= "ORDER BY begin;";
+
+  for ($day = 0; $day < 7; $day++)   {
+    $i=0;
+
+    $result = db_query($sql,  date_format($week_dates[$day], "U"),
+        date_format($week_dates[$day+1], "U"),
+        date_format($week_dates[$day], "U"),
+        date_format($week_dates[$day+1], "U"),
+        date_format($week_dates[$day], "U"),
+        date_format($week_dates[$day+1], "U")
+        );
+    $reservations[$day][0]=$empty;
+
+    while ($row = db_fetch_array($result)) {
+      $reservations[$day][$i] = $row;
+      $i++;
+    }
+  }
+
+  // falls es reservierbare items gibt:
+  $sql = "SELECT COUNT(iid) as countiid FROM {simplereservation_item} where status = 1;";
+  $result = db_query($sql);
+  $row = db_fetch_array($result);
+
+  if ($row['countiid'] > 0) {
+    return theme('simplereservation_week', $config, $reservations);
+  }
+  else {
+    drupal_set_message (t('There are no items for reservation.'));
+  }
+}
+
+
+function simplereservation_main_view() {
+  $month = date_month_names();
+  $week_day = date_week_days_ordered(date_week_days());
+  $now = date_now();
+
+  $output = '';
+  $output .= theme('simplereservation_theming', $config);
+
+  return $output;
+}
+
+
+/**
+ * Construct a form
+ */
+function simplereservation_add_edit_form() {
+
+  $num_items = db_fetch_object ( db_query("SELECT count(iid) as countiid FROM {simplereservation_item}"));
+  if ($num_items->countiid =='0'){
+    drupal_set_message (t('Please create an item before try to reseve nothing'));
+  }
+  else {
+    global $user;
+    $rid = 0;
+    $wholedaysonly = variable_get('simplereservation_whole_days', FALSE);
+    $timeresolution = variable_get('simplereservation_time_step', 15);
+    if (arg(1) == "edit")  $edit = TRUE;
+    if ($edit)  {
+      if (is_numeric(arg(2)))    {
+        $rid = arg(2);
+        $sql = "SELECT * FROM {simplereservation_reservation} ";
+        $sql .= "WHERE rid =%d;";
+        $result = db_query($sql, $rid);
+        $res = db_fetch_array($result);
+      }
+      else return $form;
+    }
+    $form['datetime'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Date and Time'),
+      '#description' => t('Date and time for this reservation.'),
+      '#collapsible' => FALSE,
+      '#collapsed' => FALSE,
+      '#tree' => TRUE,
+    );
+
+    if ($edit)   {
+      $year = date("Y", $res["begin"]);
+      $month = date("m", $res["begin"]);
+      $day = date("d", $res["begin"]);
+      $hour = date("H", $res["begin"]);
+      $min = date("i", $res["begin"]);
+    }
+    else   {
+      // get the date from the URL
+      if ( is_numeric(arg(2) ))    $year = arg(2);
+      if ( is_numeric(arg(3) ))    $month = arg(3);
+      if ( is_numeric(arg(4) ))    $day = arg(4);
+      $hour = "07";
+      $min = "00";
+    }
+
+    if ($wholedaysonly)  {
+      $date_format = 'd.m.Y - H:i';
+    }
+    else  {
+      $date_format = 'd.m.Y - H:i';
+    }
+
+    $form['datetime']['start'] = array(
+      '#type' => 'date_popup',
+      '#date_year_range' => '0:+3',
+      '#date_type' => DATE_DATETIME,
+      '#date_timezone' => date_default_timezone_name(),
+      '#date_increment' => $timeresolution,
+      '#date_format' => $date_format,
+      '#title' => t('Start'),
+      '#default_value' => $year .'-'. $month .'-'. $day .' '. $hour .':'. $min .':00',
+      '#description' => t('Start date and time of this reservation.'),
+    );
+
+    if ($edit) {
+      $year = date("Y", $res["ending"]);
+      $month = date("m", $res["ending"]);
+      $day = date("d", $res["ending"]);
+      $hour = date("H", $res["ending"]);
+      $min = date("i", $res["ending"]);
+      if ($res["whd"]) {
+        // no date_increment if this is a whole-day-reservation
+        $timeresolution = 0;
+      }
+    }
+    else   {
+      $hour = "14";
+      $min = "00";
+    }
+    if ($wholedaysonly) {
+      $form['datetime']['end'] = array(
+        '#type' => 'hidden',
+        '#value' => $year .'-'. $month .'-'. $day .' 23:59',
+      );
+    }
+    else {
+      $form['datetime']['end'] = array(
+        '#type' => 'date_popup',
+        '#date_year_range' => '0:+3',
+        '#date_type' => DATE_UNIX,
+        '#date_timezone' => date_default_timezone_name(),
+        '#date_increment' => $timeresolution,
+        '#date_format' => $date_format,
+        '#title' => t('End'),
+        '#default_value' => $year .'-'. $month .'-'. $day .' '. $hour .':'. $min .':00',
+        '#description' => t('End date and time of this reservation.'),
+      );
+    }
+
+    if ($edit) $def = $res["whd"];
+    else       $def = 0;
+
+    if (!$wholedaysonly) {
+      // do not display this checkbox if there are only whole-day-reservations
+      $form['datetime']['whole_day'] = array(
+        '#type' => 'checkbox',
+        '#title' => t('Reservation for the complete day'),
+        '#description' => t('Enable this reservation if you want to reserve for the whole day. This overwrites the above hour/minute setting.'),
+        '#default_value' => $def,
+      );
+    }
+
+    // get the reservation items and fill them in a dropdown
+    // nur die Items anzeigen, die man anzeigen will: status = 1
+    $sql = "SELECT iid, name, description FROM  {simplereservation_item} where status=1 ORDER BY name;";
+    $result = db_query($sql);
+    while ($data = db_fetch_object($result)) {
+      $period[$data->iid] = $data->name ." (". $data->description .")";
+    }
+
+    if ($edit)   $def = $res["item_id"];
+    else         $def = 0;
+
+    $form['item'] = array(
+      '#type' => 'select',
+      '#title' => t('Item'),
+      '#default_value' => $def,
+      '#options' => $period,
+      '#description' => t('The item you want to reserve.'),
+    );
+
+    if ($edit)  $def = $res["rcomment"];
+    else        $def = '';
+
+    $form['comment'] = array(
+      '#type' => 'textfield',
+      '#size'  => 50,
+      '#title' => t('Comment'),
+      '#default_value' => $def,
+      '#description' => t('You can add a comment for your reservation.'),
+    );
+
+    if ($edit)   {
+      $account = user_load(array('uid' => $res["for_uid"]));
+      $def = $account->name;
+    }
+    else $def = '';
+
+    $form['reservation_is_for'] = array(
+      '#type' => 'textfield',
+      '#title' => t('This reservation is for'),
+      '#default_value' => $def,
+      '#autocomplete_path' => 'user/autocomplete',
+      '#size' => '50',
+      '#description' => t('Add a name here if you want to reserve this item for somebody else.'),
+    );
+
+    $form['rid'] = array(
+      '#type' => 'hidden',
+      '#value' => $rid,
+    );
+
+    if ($edit) {
+      if (($res["for_uid"] == $user->uid || $res["uid"] == $user->uid) && user_access('delete own simple reservations') || user_access('delete simple reservations of others'))
+
+      $form['delete'] = array('#value' => l("<div>". t("Delete this reservation.") ."<br/><br/></div>", $path .'simplereservation/delete/'. $rid, array('html' => TRUE)), );
+    }
+
+    if ($edit)  $t = t('Save changes');
+    else        $t = t('Save this reservation');
+
+    $form['submit'] = array(
+      '#type' => 'submit',
+      '#value' => $t,
+    );
+    return $form;
+  }
+}
+
+
+function simplereservation_reservation_delete_confirm($form,  $rid) {
+  global $user;
+
+  $sql = "SELECT * FROM {simplereservation_reservation} WHERE rid =%d;";
+  $result = db_query($sql, $rid);
+  $res = db_fetch_array($result);
+
+  if ((($res["uid"] == $user->uid || $res["for_uid"] == $user->uid) && user_access('delete own simple reservations')) || user_access('delete simple reservations of others'))  {
+
+    $abort_path = 'simplereservation';
+    $form = array();
+    $form['rid'] = array('#type' => 'hidden', '#value' => $rid);
+
+    return confirm_form($form,
+    t('Are you sure you want to delete the reservation %rid?', array('%rid' => $rid)),
+    $abort_path,
+    t('This action cannot be undone.'),
+    t('Delete'),
+    t('Cancel')
+    );
+  }
+  else  {
+    drupal_access_denied();
+    return;
+  }
+}
+
+
+/**
+ * Handle the deletion
+ */
+function simplereservation_reservation_delete_confirm_submit($form, &$form_state) {
+
+  $sql = "DELETE FROM {simplereservation_reservation} WHERE rid=%d";
+  db_query($sql, $form_state['values']['rid']);
+
+  drupal_set_message(t('The reservation has been deleted.'));
+
+  // trigger our trigger
+  simplereservation_invoke_hook('simplereservation', 'delete_reservation');
+
+  // go back to the administration of system-wide weather blocks
+  $form_state['redirect'] = 'simplereservation';
+}
+
+
+/**
+ * Check the submission of the reservation
+ *
+ * This function checks, if it is possible to save the reservation. This is denied if the
+ * item which shall be reserved is booked already during that time.
+ *
+ * There is only one exeption: If a item is already booked e.g. from 09:00, then a new reservation
+ * ending at exactly 09:00 is allowed. Also, if an item is booked until e.g.11:34, a new
+ * reservation starting at 11:34 is allowed (in other words, a overlap of 1 minute is allowed).
+ */
+function simplereservation_add_edit_form_validate($form, &$form_state) {
+  global $user;
+
+  $fstart = $form_state['values']['datetime']['start'];
+  $fend = $form_state['values']['datetime']['end'];
+  if (variable_get('simplereservation_whole_days', FALSE) || $form_state['values']['datetime']['whole_day'])   {
+    $start = mktime(0, 00, 1, substr($fstart, 5, 2), substr($fstart, 8, 2), substr($fstart, 0, 4));
+    $end = mktime(23, 59, 0, substr($fend, 5, 2), substr($fend, 8, 2), substr($fend, 0, 4));
+  }
+  else  {
+    $start = mktime(substr($fstart, 11, 2), substr($fstart, 14, 2), substr($fstart, 17, 4), substr($fstart, 5, 2), substr($fstart, 8, 2), substr($fstart, 0, 4));
+    $end = mktime(substr($fend, 11, 2), substr($fend, 14, 2), substr($fend, 17, 4), substr($fend, 5, 2), substr($fend, 8, 2), substr($fend, 0, 4));
+    
+  }
+
+  $today = mktime(0, 0, 0, date("m"), date("d"), date("Y"));
+  $jetzt = mktime(date("H"), date("i"), date("s"), date("m"), date("d"), date("Y"));
+
+  // check for the restrictions set in the admin options
+  if ( ! user_access('unrestricted simple reservations') ) {
+    // ... but only if the user is not allowed to to anything he wants
+
+    $max = variable_get('simplereservation_max_reservations', 0);
+    if ($max > 0)     {
+      $sql =  "SELECT COUNT(rid) as countrid FROM {simplereservation_reservation} WHERE uid = %d AND ending > %d ";
+      $result = db_query($sql, $user->uid, $today);
+      $row = db_fetch_array($result);
+
+      if ($row['countrid']>$max) {
+        form_set_error('simplereservation', t('You are not allowed to create more than !max reservations!', array(max => $max)));
+      }
+    }
+
+    $max = variable_get('simplereservation_max_weeks', 0);
+    if ($max > 0) {
+      // end date is 2008 Oct. 11 00:00:00
+      $_endDate =   $start;
+      $_beginDate = $today;
+
+      $timestamp_diff= $_endDate-$_beginDate +1 ;
+      // how many days between those two date
+      $week_diff = $timestamp_diff/604800;
+
+      if ($week_diff > $max) {
+        form_set_error('simplereservation', t('You are not allowed to book more !max weeks in advance!', array(max => $max)));
+      }
+    }
+  }
+
+  // Reservierungen in der Vergangenheit
+  if ($start < $jetzt || $end < $jetzt) {
+    form_set_error('simplereservation', t('Begin or end of reservation is in the past!'));
+  }
+  // Endzeit vor Startzeit
+  if ($start > $end) {
+    form_set_error('simplereservation', t('End of reservation is before begin!'));
+  }
+
+  // check for an existing  reservation DURING this reservation
+  $sql =  "SELECT COUNT(rid) as countrid FROM {simplereservation_reservation} WHERE item_id = %d AND rid <> %d ";
+  $sql .= "AND ((begin <= %d AND ending >= %d) OR (begin >= %d AND ending <= %d))";
+  $result = db_query($sql,
+    $form_state['values']['item'],
+    $form_state['values']['rid'],
+    $start, $end, $start, $end);
+  $row = db_fetch_array($result);
+
+  if ($row['countrid']>0) {
+    form_set_error('simplereservation', t('The item is already reserved during that time!'));
+  }
+  // check for an existing reservation at the BEGINNING of this reservation
+  $sql =  "SELECT COUNT(rid) as countrid FROM {simplereservation_reservation} WHERE item_id = %d AND rid <> %d ";
+  $sql .= "AND begin <= %d AND ending > %d";
+  $result = db_query($sql,
+    $form_state['values']['item'],
+    $form_state['values']['rid'] ,
+    $start, $start);
+  $row = db_fetch_array($result);
+
+  if ($row['countrid']>0) {
+    form_set_error('simplereservation', t('The item is already reserved at the beginning of your reservation!'));
+  }
+
+  // check for an existing reservation at the END of this reservation
+  $sql =  "SELECT COUNT(rid) as countrid FROM {simplereservation_reservation} WHERE item_id = %d AND rid <> %d ";
+  $sql .= "AND begin < %d AND ending >= %d";
+  $result = db_query($sql,
+    $form_state['values']['item'],
+    $form_state['values']['rid'],
+    $end, $end);
+  $row = db_fetch_array($result);
+
+  if ($row['countrid']>0) {
+    form_set_error('simplereservation', t('The item is already reserved at the end of your reservation!'));
+  }
+}
+
+
+/**
+ * Handle the submission of the reservation
+ */
+function simplereservation_add_edit_form_submit($form, &$form_state) {
+  global $user;
+
+  $fstart = $form_state['values']['datetime']['start'];
+  $fend = $form_state['values']['datetime']['end'];
+  if (variable_get('simplereservation_whole_days', FALSE) || $form_state['values']['datetime']['whole_day']) {
+    $start = mktime(0, 00, 01, substr($fstart, 5, 2), substr($fstart, 8, 2), substr($fstart, 0, 4));
+    $end = mktime(23, 59, 0, substr($fend, 5, 2), substr($fend, 8, 2), substr($fend, 0, 4));
+  }
+  else {
+    $start = mktime(substr($fstart, 11, 2), substr($fstart, 14, 2), substr($fstart, 17, 4), substr($fstart, 5, 2), substr($fstart, 8, 2), substr($fstart, 0, 4));
+    $end = mktime(substr($fend, 11, 2), substr($fend, 14, 2), substr($fend, 17, 4), substr($fend, 5, 2), substr($fend, 8, 2), substr($fend, 0, 4));
+  }
+
+  $account = user_load(array('name' => $form_state['values']['reservation_is_for']));
+
+  if ($form_state['values']['rid'] > 0) {
+    // this is a EDIT -> UPDATE
+    $sql = "UPDATE {simplereservation_reservation} SET item_id = %d, uid  = %d, for_uid = %d, begin = %d, ending = %d, rcomment = '%s', whd = %d WHERE rid = %d";
+    db_query($sql,    $form_state['values']['item'],
+                      $user->uid,
+                      $account->uid,
+                      $start,
+                      $end,
+                      $form_state['values']['comment'] ,
+                      $form_state['values']['datetime']['whole_day'],
+                      $form_state['values']['rid']    );
+
+    watchdog('reservation', 'Reservation %rid updated by %name', array('%rid' => $form_state['values']['rid'], '%name' => $user->name));
+  }
+  else { // new reservation -> INSERT
+    $sql = "INSERT INTO {simplereservation_reservation} (item_id, uid, for_uid, begin, ending, rcomment, whd) VALUES(%d, %d, %d, %d, %d, '%s',%d)";
+
+    db_query($sql,    $form_state['values']['item'],
+                      $user->uid,
+                      $account->uid,
+                      $start,
+                      $end,
+                      $form_state['values']['comment'],
+                      $form_state['values']['datetime']['whole_day']);
+    watchdog('reservation', 'New reservation %rid added by %name', array('%rid' => $path, '%name' => $user->name));
+  }
+  drupal_set_message(t('The reservation has been saved.'));
+  
+  // trigger our trigger
+  simplereservation_invoke_hook('simplereservation', 'new_reservation');
+  
+  $form_state['redirect'] = 'simplereservation';
+}
+
+
+function simplereservation_reservation_add() {
+  $output = '';
+
+  if (user_access('add simple reservations for others') || user_access('add simple reservations')) {
+    $output .= drupal_get_form('simplereservation_add_edit_form');
+    return $output;
+  }
+  else {
+    drupal_access_denied();
+    return;
+  }
+}
+
+
+function simplereservation_reservation_edit() {
+  global $user;
+
+  $output = '';
+
+  if (is_numeric(arg(2))) {
+    $rid = arg(2);
+    $sql = "SELECT * FROM {simplereservation_reservation} WHERE rid =%d;";
+    $result = db_query($sql, $rid);
+    $res = db_fetch_array($result);
+  }
+  else {
+    drupal_access_denied();
+    return;
+  }
+
+  if ((($res["for_uid"] == $user->uid || $res["uid"] == $user->uid) && user_access('edit own simple reservations')) || user_access('edit simple reservations of others')) {
+    $output .= drupal_get_form('simplereservation_add_edit_form');
+    return $output;
+  }
+  else {
+    drupal_access_denied();
+    return;
+  }
+}
+
+/**
+ * Implementation of hook_block().
+ */
+function simplereservation_block($op='list', $delta = 0, $edit = array()) {
+  switch ($op) {
+    case 'list':
+      $blocks[0]['info'] = t('Upcoming Reservations');
+      return $blocks;
+    case 'view':
+      $block['subject'] = t('Upcoming Reservations');
+      $block['content'] = _simplereservation_upcoming_reservations();
+      return $block;
+  }
+}
+
+/**
+ * Retrieve upcoming reservations
+ *
+ * @param $num_items Number of reservations in resultset.
+ * @return string String containing the block content or
+ * a message if there are no upcoming reservations.
+ */
+function _simplereservation_upcoming_reservations($num_items=10) {
+  $output = '';
+  $jetzt = mktime(date("H"), date("i"), date("s"), date("m"), date("d"), date("Y"));
+  $reservations = array();
+  $sql = "SELECT * FROM {simplereservation_reservation} ";
+  $sql .= "INNER JOIN {simplereservation_item} ";
+  $sql .= "ON iid=item_id ";
+  $sql .= "WHERE begin >= %d  ";
+  $sql .= "OR ending >= %d  ";
+  $sql .= "OR (begin <= %d AND ending > %d) ";
+  $sql .= "ORDER BY begin LIMIT %d;";
+
+  $result = db_query($sql, $jetzt, $jetzt, $jetzt, $jetzt, $num_items);
+
+  while ($row = db_fetch_array($result)) {
+      $reservations[] = $row;
+      $i++;
+  }
+  if (is_array($reservations) && count($reservations)) {
+
+    $aktdatum = (date("d.m.Y", $reservations[0]["begin"]));
+    $output .= '<span class="reservation-date">&nbsp;'. $aktdatum .'&nbsp;</span><br/>';
+
+    foreach ($reservations as $reservation)  {
+      if ($reservation["rid"] > 0)  {
+        $from = user_load($reservation["uid"]);
+        if ((date("d.m.Y", $reservation["begin"])) != $aktdatum) {
+          $aktdatum = (date("d.m.Y", $reservation["begin"]));
+          $output .= '<span class="reservation-date">&nbsp;'. $aktdatum .'&nbsp;</span><br/>';
+        }
+        if ($reservation["ending"] - $reservation["begin"] == 86339) {
+          $output .= '<strong>'. t('whole day') .'</strong>&nbsp;';
+        }
+        else {
+          // von Beginn
+          $output .= '<strong>'. date("H:i", $reservation["begin"]);
+          $output .= " - ";
+          // bis Ende
+          $output .= date("H:i", $reservation["ending"]) .'&nbsp;';
+        }
+        $output .= "<a title=\"". $reservation["description"] ."\">". $reservation["name"] ."</a></strong>";
+        $output .= " ". t("booked by") ." ". l($from->name, $path .'user/'. $from->uid) ;
+        if ($reservation["rcomment"] != "")
+        $output .= " (". $reservation["rcomment"] .")";
+        $output .= "<br/>";
+      }
+    }
+  }
+  else {
+    $output = t('There are no upcoming reservations.');
+  }
+  return $output;
+}
+
+/****************************************************************************
+ ADMINISTRATION
+ ******************************************************************************/
+
+/**
+ *
+ */
+function simplereservation_admin_main_page() {
+  $output = '';
+  $path = 'admin/settings/simplereservation/';
+
+  $header = array(
+    t('Name'),
+    t('Description'),
+    t('Comment'),
+    t('Status'),
+    array('data' => t('Operations'), 'colspan' => 2),
+  );
+
+  $rows = array();
+
+  $sql = "SELECT * FROM {simplereservation_item} ORDER BY name ASC";
+  $result = db_query($sql, -$item);
+  while ($row = db_fetch_array($result)) {
+
+    if ($row['status'] == 0)
+    $status = t('not available');
+    elseif ($row['status'] == 1)
+    $status = t('available');
+
+    $rows[] = array(
+      $row['name'],
+      $row['description'],
+      $row['comment'],
+      $status,
+      l(t('edit'), $path .'edit/'.  $row['iid']),
+      l(t('delete'), $path .'delete/'. $row['iid']),
+    );
+  }
+
+  $output .= theme('table', $header, $rows);
+  $output .= '<br/>';
+  if (isset($form['pager']['#value'])) {
+    $output .= drupal_render($form['pager']);
+  }
+
+  $output .= l(t('Create new item'), $path .'edit/-1') .'<br/>';
+  $output .= l(t('Show all reservations'), $path .'showall/all') .'<br/>';
+  $output .= l(t('Show all upcoming reservations'), $path .'showall/upcoming') .'<br/><br/>';
+  $output .= drupal_get_form('simplereservation_admin_page_form');
+  return $output;
+}
+
+/**
+ * Construct a form for general settings
+ */
+function simplereservation_admin_page_form() {
+
+  $form['settings'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Settings'),
+    '#description' => t('General settings for the reservation system.'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+    '#tree' => TRUE,
+  );
+
+  $form['settings']['max_reservations'] = array(
+    '#type' => 'textfield',
+    '#size'  => 5,
+    '#title' => t('Maximum number of reservations per person'),
+    '#default_value' => variable_get('simplereservation_max_reservations', 0),
+    '#description' => t('This setting defines the maximum number of reservations a user can make (not counting passed reservations). Enter 0 for an unlimited number. Administrators are not affected by this setting.'),
+  );
+  $form['settings']['max_weeks'] = array(
+    '#type' => 'textfield',
+    '#size'  => 5,
+    '#title' => t('Maximum number of weeks a user can book in advance'),
+    '#default_value' => variable_get('simplereservation_max_weeks', 0),
+    '#description' => t('Enter 0 for an unlimited number. Administrators are not affected by this setting.'),
+  );
+
+  $form['settings']['time_step'] = array(
+    '#type' => 'textfield',
+    '#size'  => 5,
+    '#title' => t('Resolution for the hours and minutes for the reservations'),
+    '#default_value' => variable_get('simplereservation_time_step', 15),
+    '#description' => t('If you enter e.g. 15, a reservation can only be done in a quarter hourly basis, e.g. 9:00, 9:15, 9:30, ...'),
+  );
+
+  $form['settings']['whole_days'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Reservations for whole days only'),
+    '#description' => t('When you enable this box, reservations can only be done for whole days from 0:00 until 23:59.'),
+    '#default_value' => variable_get('simplereservation_whole_days', FALSE),
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save configuration'),
+  );
+  /**/
+  return $form;
+}
+
+
+function simplereservation_admin_page_form_submit($form, &$form_state) {
+
+  variable_set('simplereservation_max_reservations', $form_state['values']['settings']['max_reservations']);
+  variable_set('simplereservation_max_weeks', $form_state['values']['settings']['max_weeks']);
+  variable_set('simplereservation_time_step', $form_state['values']['settings']['time_step']);
+  variable_set('simplereservation_whole_days', $form_state['values']['settings']['whole_days']);
+  drupal_set_message(t('The configuration has been saved.'));
+}
+
+
+function simplereservation_item_delete_confirm($form, $iid) {
+  $abort_path = 'admin/settings/simplereservation';
+
+  // darf ein item geloescht werden, wenn es dafuer Reservierungen gibt? Im Moment JA.
+
+  $sql = "SELECT * FROM {simplereservation_item} WHERE iid=%d";
+  $result = db_query($sql, $iid);
+  $row = db_fetch_array($result);
+
+  $form = array();
+  $form['iid'] = array('#type' => 'hidden', '#value' => $iid);
+  return confirm_form($form,
+  t('Are you sure you want to delete the item %name?', array('%name' => $row['name'])),
+  $abort_path,
+  t('This action cannot be undone.'),
+  t('Delete'),
+  t('Cancel')
+  );
+}
+
+
+/**
+ * Handle the deletion of a item
+ */
+function simplereservation_item_delete_confirm_submit($form, &$form_state) {
+
+  $sql = "DELETE FROM {simplereservation_item} WHERE iid=%d";
+  db_query($sql, $form_state['values']['iid']);
+  drupal_set_message(t('The item has been deleted.'));
+
+  // go back to the administration
+  $form_state['redirect'] = 'admin/settings/simplereservation';
+}
+
+
+/**
+ * Show a configuration page
+ */
+function simplereservation_item_edit($iid) {
+  $output = drupal_get_form('simplereservation_item_form', $iid);
+  return $output;
+}
+
+
+/**
+ * Construct the configuration form for items
+ */
+function simplereservation_item_form($dummy, $iid) {
+
+  if ($iid > 0) {
+    $sql = "SELECT * FROM {simplereservation_item} WHERE iid=%d";
+    $result = db_query($sql, $iid);
+    $row = db_fetch_array($result);
+  }
+  else {
+    $row = array("name" => 'Name', "description" => 'A description', "comment" => 'A comment');
+  }
+
+  $form['name'] = array(
+    '#title' => t('Name of the item'),
+    '#type' => 'textfield',
+    '#size' => '20',
+    '#default_value' => $row['name'],
+    '#description' => t('A (unique) short name to identify the item, e.g. "Room 12", "Number 42" or a registration number.')
+  );
+  $form['description'] = array(
+    '#title' => t('Description of the item'),
+    '#type' => 'textfield',
+    '#size' => '50',
+    '#default_value' => $row['description'] ,
+    '#description' => t('More detailed information to describe the item.')
+  );
+  $form['comment'] = array(
+    '#title' => t('Comment'),
+    '#type' => 'textfield',
+    '#size' => '50',
+    '#default_value' => $row['comment'] ,
+    '#description' => t('e.g. "non-smoking", "diesel" or something.')
+  );
+  $form['iid'] = array(
+    '#type' => 'value',
+    '#value' => $iid,
+  );
+  $form['status'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('This item is available for reservation'),
+    '#description' => t('If you disable this, the item will not show in the reservation list and won\'t be available for reservation. You can use this to prepare a list of items or to prevent an item from reservation if it is e.g. broken.'),
+    '#default_value' => $row['status'],
+  );
+
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+  );
+  return $form;
+}
+
+
+/**
+ * Check the submission
+ */
+function simplereservation_item_form_validate($form, &$form_state) {
+  if ($form_state['values']['iid']<0) {
+    // check if the name exists already
+    $sql = "SELECT COUNT(name) as countname FROM {simplereservation_item} WHERE name='%s'";
+    $result = db_query($sql,  $form_state['values']['name']);
+    $row = db_fetch_array($result);
+
+    if ($row['countname']>0) {
+      form_set_error('simplereservation', t('An item with that name exists already.'));
+    }
+  }
+}
+
+/**
+ * Handle the submission
+ */
+function simplereservation_item_form_submit($form, &$form_state) {
+  // delete the previous entry
+
+  $iid =  $form_state['values']['iid'];
+
+    if ($iid > 0) { // update of a existing item
+    $sql = "UPDATE {simplereservation_item} SET name = '%s', description = '%s', comment = '%s', status = %d WHERE iid = %d";
+    db_query($sql,
+      $form_state['values']['name'],
+      $form_state['values']['description'],
+      $form_state['values']['comment'],
+      $form_state['values']['status'],
+      $form_state['values']['iid']
+    );
+    drupal_set_message(t('The item has been saved.'));
+  }
+  else {
+    $sql = "INSERT INTO {simplereservation_item} (name, description, comment, status) VALUES('%s', '%s', '%s', %d)";
+    db_query($sql,
+      $form_state['values']['name'],
+      $form_state['values']['description'],
+      $form_state['values']['comment'],
+      $form_state['values']['status']
+    );
+    drupal_set_message(t('The item has been saved.'));
+  }
+  $form_state['redirect'] = 'admin/settings/simplereservation';
+}
+
+/**
+ * Show all (upcoming) reservations
+ */
+function simplereservation_showall_reservations() {
+  $output = '';
+  $jetzt = mktime(date("H"), date("i"), date("s"), date("m"), date("d"), date("Y"));
+
+  $reservations = array();
+  $sql = "SELECT * FROM {simplereservation_reservation} ";
+  $sql .= " INNER JOIN {simplereservation_item}";
+  $sql .= " ON iid=item_id ";
+  if (arg(4) == 'upcoming') {
+    $sql .= " WHERE begin >= %d  ";
+    $sql .= " OR ending >= %d  ";
+    $sql .= " OR (begin <= %d AND ending > %d) ";
+  }
+  $sql .= " ORDER BY begin;";
+
+  if (arg(4) == 'upcoming') {
+    $result = db_query($sql, $jetzt, $jetzt, $jetzt, $jetzt);
+  }
+  else {
+    $result = db_query($sql);
+  }
+
+  while ($row = db_fetch_array($result)) {
+    $reservations[] = $row;
+    $i++;
+  }
+  if (is_array($reservations) && count($reservations)) {
+    $output = '<table>';
+
+    $aktdatum = (date("d.m.Y", $reservations[0]["begin"]));
+    $output .= '<tr><td colspan="2"><span class="reservation-date">&nbsp;'. $aktdatum .'&nbsp;</span></td></tr>';
+
+    foreach ($reservations as $reservation)  {
+      if ($reservation["rid"] > 0)  {
+        $from = user_load($reservation["uid"]);
+
+        if ((date("d.m.Y", $reservation["begin"])) != $aktdatum) {
+          $aktdatum = (date("d.m.Y", $reservation["begin"]));
+          $output .= '<tr><td colspan="2"><span class="reservation-date">&nbsp;'. $aktdatum .'&nbsp;</span></td></tr>';
+        }
+        if ($reservation["ending"] - $reservation["begin"] == 86339) {
+          $output .= '<tr><td>'. t('whole day');
+        }
+        else {
+          // von Beginn
+          $output .= '<tr><td>'. (date("H:i", $reservation["begin"]));
+          $output .= ' - ';
+          // bis Ende
+          $output .=  date("H:i", $reservation["ending"]);
+        }
+        $output .=  "</td><td><a  title=\"". $reservation["description"] ."\">". $reservation["name"] ."</a></b>";
+        $output .= " ". t("booked by") ." ". l($from->name, 'user/'. $from->uid);
+        if ($reservation["for_uid"] != 0) {
+          $foruid = user_load($reservation["for_uid"]);
+          $output .= ' for '. l($foruid->name, 'user/'. $foruid->uid);
+        }
+        if ($reservation["rcomment"] != "") {
+          $output .= " (". $reservation["rcomment"] .")";
+        }
+      }
+      $output .= '</td></tr>';
+    }
+    $output .= '</table>';
+  }
+  else {
+  $outout = 'There are no reservations';
+  }
+  return $output;
+}

@@ -1,0 +1,13 @@
+; $Id: og_ldap.info,v 1.1 2010/02/06 02:19:11 kaleworsley Exp $
+name = Organic groups LDAP
+description = "Map LDAP DNs or RDNs to Organic groups."
+package = "Organic groups"
+dependencies[] = og
+dependencies[] = ldapgroups
+core=6.x
+; Information added by drupal.org packaging script on 2010-10-03
+version = "6.x-1.0-alpha2"
+core = "6.x"
+project = "og_ldap"
+datestamp = "1286144761"
+

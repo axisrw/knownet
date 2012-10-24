@@ -1,0 +1,1360 @@
+<?php
+
+/**
+ * @file
+ * Implements community tagging of nodes using a specific vocabulary for Drupal v6.x
+ */
+
+/**
+ * Display modes.
+ */
+define('COMMUNITY_TAGS_MODE_BLOCK', 0);
+define('COMMUNITY_TAGS_MODE_TAB', 1);
+define('COMMUNITY_TAGS_MODE_INLINE', 2);
+define('COMMUNITY_TAGS_MODE_NONE', 3);
+
+define('COMMUNITY_TAGS_MODE_HIDE_TERMS_PAGE', 1);
+define('COMMUNITY_TAGS_MODE_HIDE_TERMS_TEASER', 2);
+
+/**
+ * Operation modes.
+ */
+define('COMMUNITY_TAGS_OPMODE_NOSYNC', 0x00);
+define('COMMUNITY_TAGS_OPMODE_DELETE_ORPHAN_TERMS', 0x02);
+
+/**
+ * Implementation of hook_help().
+ */
+function community_tags_help($path, $arg) {
+  switch ($path) {
+    case 'admin/settings/community-tags':
+      return t('To set up community tagging, you must first <a href="@taxonomy">create a normal free tagged vocabulary</a>. Then activate community tagging on such a vocabulary below, and set the <a href="@workflow">workflow options</a> for node types to control how users can tag nodes.', array('@taxonomy' => url('admin/content/taxonomy'), '@workflow' => url('admin/content/types')));
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function community_tags_theme() {
+  return array(
+    'community_tags_form' => array(
+      'arguments' => array('form' => NULL),
+      'file' => 'community_tags.pages.inc',
+    ),
+    'community_tags' => array(
+      'arguments' => array('tags' => NULL),
+    ),
+    'community_tags_links' => array(
+      'arguments' => array('tags' => NULL),
+    ),
+    'community_tags_settings' => array(
+      'arguments' => array('element' => NULL),
+    ),
+    'community_tags_tag_mgmt' => array(
+      'arguments' => array('node' => NULL),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function community_tags_menu() {
+  $items = array();
+
+  $items['admin/settings/community-tags'] = array(
+    'title' => 'Community tags',
+    'description' => 'Configure community tagging.',
+    'page callback' => 'community_tags_settings',
+    'access arguments' => array('administer site configuration'),
+    'file' => 'community_tags.admin.inc',
+  );
+  $items['admin/settings/community-tags/%taxonomy_vocabulary/%'] = array(
+    // 'title' => 'Community tags',
+    'title callback' => 'community_tags_sub_settings_title',
+    'title arguments' => array(3, 4),
+    'description' => 'Configure community tagging for vocabulary and content type.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('community_tags_sub_settings', 3, 4),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'community_tags.admin.inc',
+  );
+  $items['admin/settings/community-tags/ops/broken'] = array(
+    'title' => 'Delete broken community tags',
+    'description' => 'Delete broken community tags.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('community_tags_delete_broken_tags_form'),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_CALLBACK,
+    'file' => 'community_tags.admin.inc',
+  );
+  $items['admin/settings/community-tags/ops/purge/%taxonomy_vocabulary'] = array(
+    'title' => 'Delete community tags',
+    'description' => 'Delete community tags.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('community_tags_delete_all_form', 5),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_CALLBACK,
+    'file' => 'community_tags.admin.inc',
+  );
+  $items['community-tags/js/%node'] = array(
+    'page callback' => 'community_tags_from_js',
+    'page arguments' => array(2),
+    'access callback' => 'user_access',
+    'access arguments' => array('tag content'),
+    'type' => MENU_CALLBACK,
+    'file' => 'community_tags.ajax.inc',
+  );
+  $items['community-tags/tag/%node/%'] = array(
+    'title' => 'Tag Content',
+    'page callback' => 'community_tags_node_view',
+    'page arguments' => array(2, FALSE, 3),
+    'access callback' => 'user_access',
+    'access arguments' => array('tag content'),
+    'file' => 'community_tags.pages.inc',
+  );
+  $items['node/%node/tag'] = array(
+    'title' => 'Tags',
+    'page callback' => 'community_tags_node_view',
+    'page arguments' => array(1, FALSE),
+    'access callback' => '_community_tags_tab_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 2,
+    'file' => 'community_tags.pages.inc',
+  );
+
+  $items['node/%node/tagmgmt'] = array(
+    'title' => 'Tag Management',
+    'page callback' => 'community_tags_node_tag_management',
+    'page arguments' => array(1),
+    'access callback' => '_community_tags_mgmt_tab_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 3,
+    'file' => 'community_tags.pages.inc',
+  );
+
+  $items['community-tags/tagmgmtops/%/%node/%'] = array(
+    'title' => 'Tag Management Operation',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('community_tags_node_tag_mgmt_confirm', 3, 4, 2),
+    'access callback' => '_community_tags_mgmt_tab_access',
+    'access arguments' => array(3),
+    'type' => MENU_CALLBACK,
+    'file' => 'community_tags.pages.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Title callback for sub-settings configuration page.
+ */
+function community_tags_sub_settings_title($arg1, $arg2) {
+  module_load_include('inc', 'community_tags', 'community_tags.admin');
+  return _community_tags_sub_settings_title($arg1, $arg2);
+}
+
+/**
+ * Implementation of hook_block().
+ */
+function community_tags_block($op = 'list', $delta = 0, $edit = array()) {
+  global $user;
+  switch ($op) {
+
+    case 'list':
+      // tagging form block should not be cached as block uses JS settings in community_tags_node_view()
+      $block[0] = array(
+        'info' => t('Community tagging form'),
+        'cache' => BLOCK_NO_CACHE,
+        // 'cache' => BLOCK_CACHE_PER_USER | BLOCK_CACHE_PER_PAGE,
+        // Per user per page caching is supported. Use the block cache alter module, or update the database.
+      );
+      return $block;
+
+    case 'view':
+      if (_community_tags_view_access()) {
+        if (arg(0) == 'node' && is_numeric(arg(1)) && (arg(2) == '' || arg(2) == 'view')) {
+          $node = menu_get_object();
+          if (_community_tags_is_tagging_view_visible($node, COMMUNITY_TAGS_MODE_BLOCK)) {
+            $block['subject'] = t('Tag this');
+            $block['content'] = community_tags_node_view($node, TRUE);
+            return $block;
+          }
+        }
+      }
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_perm().
+ */
+function community_tags_perm() {
+  return array('tag content', 'edit own tags', 'manage tags', 'manage tags on own content', 'view tags');
+}
+
+/**
+ * Implementation of hook_nodeapi().
+ * Community tags hooks should be called after taxonomy module hooks - see system
+ * weight in community_tags.install.
+ */
+function community_tags_nodeapi(&$node, $op, $teaser) {
+  switch ($op) {
+    case 'load':
+      $node->community_tags_form = _community_tags_is_tagging_view_visible($node, COMMUNITY_TAGS_MODE_INLINE);
+      break;
+    case 'delete':
+      _community_tags_node_delete($node);
+    case 'view':
+      global $user;
+      // Show quick tag form for this node if we're on a node page view and the
+      // form is enabled for this node and the default quick tag vocab is set and it's not a search build.
+      if (!$teaser && $node->build_mode != NODE_BUILD_SEARCH_INDEX && $node->community_tags_form) {
+        $node->content['community_tags'] = array(
+          '#value' => community_tags_node_view($node, TRUE),
+          '#weight' => 50,
+        );
+      }
+      break;
+    case 'alter':
+      $hide_terms_modes = variable_get('community_tags_hide_terms_'. $node->type, array());
+      $hide_terms_modes = drupal_map_assoc($hide_terms_modes);
+      if(($teaser && isset($hide_terms_modes[COMMUNITY_TAGS_MODE_HIDE_TERMS_TEASER])) || (!$teaser && isset($hide_terms_modes[COMMUNITY_TAGS_MODE_HIDE_TERMS_PAGE]))) {
+        unset($node->taxonomy);
+      }
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_link(). Add tag links to teasers etc.
+ */
+function community_tags_link($type, $object, $teaser = FALSE) {
+  $links = array();
+  if($type == 'node') {
+    if(user_access('tag content')) {
+      $vids = community_tags_vids_for_node($object);
+
+      // filter out any vids that don't have trag links enabled for this content type
+      foreach($vids as $vid) {
+        $settings = _community_tags_get_settings($vid, $object->type);
+        if(($teaser && empty($settings['tag_links']['teaser'])) || (!$teaser && empty($settings['tag_links']['full']))) {
+          unset($vids[$vid]);
+        }
+      }
+
+      if(count($vids) > 1) {
+        foreach($vids as $vid) {
+          $vocabulary = taxonomy_vocabulary_load($vid);
+          $link_title = t('Tag this (@name)', array('@name' => $vocabulary->name));
+          $links['community_tag-'.$vid] = array('title' => $link_title, 'href' => 'community-tags/tag/'.$object->nid.'/'.$vid);
+        }
+      }
+      elseif(count($vids) == 1) {
+        $vid = reset($vids);
+        $links['community_tag-'.$vid] = array('title' => t('Tag this'), 'href' => 'community-tags/tag/'.$object->nid.'/'.$vid);
+      }
+    }
+  }
+
+  return $links;
+}
+
+/**
+ * Implementation of hook_preprocess_type(). Allow overrides of node terms display.
+ */
+function community_tags_preprocess_node(&$variables) {
+  $settings = community_tags_get_content_type_settings($variables['type']);
+
+  if($variables['teaser']) {
+    $override = $settings['community_tags_terms_teaser'];
+  }
+  elseif($variables['page']) {
+    $override = $settings['community_tags_terms_page'];
+  }
+
+  switch($override) {
+    case 'hide':
+      unset($variables['terms']);
+      break;
+    case 'override':
+      $tags = _community_tags_get_tag_counts($variables['node'], NULL, NULL);
+
+      foreach($tags as $tag) {
+        $link = l($tag->name, taxonomy_term_path($tag), array('attributes' => array('rel' => 'tag', 'title' => strip_tags($tag->description))));
+        $ct_links['taxonomy_term_'. $tag->tid] = array(
+          'title' => $link . '<span class="ct-count">('. $tag->count .')</span>',
+          'html' => TRUE,
+        );
+      }
+      drupal_add_css(drupal_get_path('module', 'community_tags') .'/community_tags.css', 'module');
+      $variables['terms'] = theme('links', $ct_links, array('class' => 'links inline ct-counts'));
+      break;
+    default:
+  }
+}
+
+/**
+ * Implementation of hook_taxonomy().
+ * Handle term deletion. No need to handle vocabulary deletion term/delete
+ * hook is called for every term in the vocabulary before vocabulary/delete hook.
+ */
+function community_tags_taxonomy($op = NULL, $type = NULL, $term = NULL) {
+  if ($type == 'term' && $term['tid']) {
+    switch ($op) {
+      case 'delete':
+        // if term is deleted then remove all ctags for the term
+        $term = (object)$term;
+        _community_tags_term_delete($term);
+        break;
+    }
+  }
+}
+
+/**
+ * Implementation of hook_user().
+ *
+ * Handle user deletion.
+ */
+function community_tags_user($op, &$edit, &$user) {
+  if($op == 'delete') {
+    // if user is deleted then remove all ctags for the user.
+    // @todo consider option of moving all tags to a "dead" user so tags are not lost
+    _community_tags_user_delete($user);
+  }
+}
+
+/**
+ *  Implement CCK's hook_content_extra_fields().
+ */
+function community_tags_content_extra_fields($type_name) {
+  $extra = array();
+  if (variable_get('community_tags_display_'. $type_name, COMMUNITY_TAGS_MODE_TAB) == COMMUNITY_TAGS_MODE_INLINE) {
+    $extra['community_tags'] = array(
+      'label' => t('Community Tags'),
+      'description' => t('Community Tags Form'),
+      'weight' => 100,
+    );
+  }
+  return $extra;
+}
+
+/**
+ * Implementation of hook_form_alter().
+ */
+function community_tags_form_alter(&$form, &$form_state, $form_id) {
+  // Provide option to enable Community Tags per node type.
+  if ($form_id == 'node_type_form' && isset($form['#node_type']->type)) {
+    module_load_include('inc', 'community_tags', 'community_tags.admin');
+    return _community_tags_node_type_form_alter($form, $form_state, $form_id);
+  }
+}
+
+function community_tags_get_content_type_settings($type = NULL) {
+  $settings = variable_get('community_tags_content_types', array());
+  $defaults = array('community_tags_terms_page' => 'none', 'community_tags_terms_teaser' => 'none', 'ct_links_limit' => 8);
+  if($type) {
+    return isset($settings[$type]) ? array_merge($defaults, $settings[$type]) : $defaults;
+  }
+  else {
+    return $settings;
+  }
+}
+
+/**
+ * Save community_tags term associations and counts for a given node.
+ *
+ * Do user ctags processing. If new tags added or tags deleted and synchronisation required,
+ * call node_save() so that other modules get to act including taxonomy.module which will create
+ * or destroy term node records.
+ *
+ * @param $tags_and_terms
+ *  All the users' terms - array('tags' => array(vid1 => array($tagname1, $tagname2...), vid2 => array(...)))
+ *  NB: may have more than 1 vocabulary.
+ */
+function community_tags_taxonomy_node_save($node, $tags_and_terms, $is_owner, $uid) {
+  // get permitted CT vocabularies
+  $vids = community_tags_vids_for_node($node);
+
+  // find existing terms and identify new tags
+  $processed_tags_and_terms = _community_tags_node_process_tags_and_terms($tags_and_terms, $vids, $node, $uid);
+
+  $user = user_load($uid);
+
+  // for each vocabulary supplied
+  foreach ($processed_tags_and_terms as $vid => $tags_and_terms) {
+    // compare existing node terms and tags to processed terms and tags - add or delete as required.
+    $existing_tags_and_terms = community_tags_get_user_node_tags_and_terms($user, $node, $vid);
+
+    // get new tags and terms
+    $new_tags_and_terms = _community_tags_diff_tags_and_terms($tags_and_terms, $existing_tags_and_terms);
+
+    // get removed tags and terms - a removed tag may be one that is removed whilst pending moderation.
+    $removed_tags_and_terms = _community_tags_diff_tags_and_terms($existing_tags_and_terms, $tags_and_terms);
+
+    // add tags and terms
+    community_tags_tag($node, $user, $vid, $new_tags_and_terms);
+
+    // remove tags and terms
+    community_tags_untag($node, $user, $vid, $removed_tags_and_terms);
+  }
+}
+
+function _community_tags_diff_tags_and_terms($tags_and_terms1, $tags_and_terms2) {
+  $terms = array_diff_key($tags_and_terms1['terms'], $tags_and_terms2['terms']);
+  $tags = array_diff($tags_and_terms1['new tags'], $tags_and_terms2['new tags']);
+
+  return array('terms' => $terms, 'new tags' => $tags);
+}
+
+function _community_tags_get_display_handlers() {
+  static $handlers;
+
+  if(!$handlers) {
+    $handlers = array(
+      'none' => array('id' => 'none', 'title' => t('None'), 'fn' => '_community_tags_display_handler_none'),
+      'links' => array('id' => 'links', 'title' => t('Links'), 'fn' => '_community_tags_display_handler_links'),
+    );
+
+    if(module_exists('tagadelic')) {
+      $handlers['tagadelic'] = array('id' => 'tagadelic', 'title' => t('Tagadelic'), 'fn' => '_community_tags_display_handler_tagadelic');
+    }
+  }
+
+  return $handlers;
+}
+
+/**
+ * Get handler options for admin form. Interim measure pending pluggable display handlers.
+ */
+function _community_tags_get_display_handler_options() {
+  $options = array();
+  foreach(_community_tags_get_display_handlers() as $key => $handler) {
+    $options[$key] = $handler['title'];
+  }
+
+  return $options;
+}
+
+/**
+ * Perhaps extend with ctools.
+ * Return configured display handler or default to 'links' if configured handler not available.
+ */
+function _community_tags_get_display_handler($vid, $content_type, $inline = TRUE) {
+  // get settings
+  $settings = _community_tags_get_settings($vid, $content_type);
+
+  // get all handlers
+  $handlers = _community_tags_get_display_handlers();
+
+  return isset($handlers[$settings['display_handler']]) ? $handlers[$settings['display_handler']] : $handlers['links'];
+}
+
+/**
+ * No all tag display.
+ */
+function _community_tags_display_handler_none() {
+  return;
+}
+
+/**
+ * Display all tags as simple links.
+ */
+function _community_tags_display_handler_links($node, $vid) {
+  $tags = _community_tags_get_tag_counts($node, NULL, NULL, $vid);
+  return theme('community_tags_links', $tags);
+}
+
+/**
+ * Display all tags using tagadelic. Only called if tagadelic module is enabled. See _community_tags_get_tag_result() for definitions
+ * of $type and the arguments.
+ */
+function _community_tags_display_handler_tagadelic($node, $vid) {
+  $result = _community_tags_get_tag_counts($node, NULL, NULL, $vid, array('dbresult' => TRUE));
+  $weighted_tags = tagadelic_build_weighted_tags($result);
+  $sorted_tags = tagadelic_sort_tags($weighted_tags);
+  return theme('community_tags', $sorted_tags);
+}
+
+/**
+ * Community tags callback for node view.
+ *
+ * chaps2 - implemented multiple vocabularies base on patch at #199936.
+ * @todo refactor to allow use of block cache
+ */
+function community_tags_node_view($node, $inline = TRUE, $vid = NULL) {
+  global $user;
+
+  // restrict access to view tags at least
+  if (!_community_tags_view_access()) {
+    return FALSE;
+  }
+
+  if (is_numeric($node)) {
+    $node = node_load($node);
+  }
+
+  // Guard against duff nids and nodes. Added in response to http://drupal.org/node/331819.
+  if (!$node || !is_object($node)) {
+    return;
+  }
+
+  if (!$inline) {
+    drupal_set_title(check_plain($node->title));
+  }
+
+  module_load_include('inc', 'community_tags', 'community_tags.pages');
+
+  $output = '';
+
+  $vids = $vid ? array($vid) : community_tags_vids_for_node($node);
+  foreach($vids as $vid) {
+    $tags = community_tags_get_user_node_tags($user, $node, $vid);
+
+    $display_handler = _community_tags_get_display_handler($vid, $node->type, $inline);
+    $cloud = call_user_func($display_handler['fn'], $node, $vid);
+
+    $names = array();
+
+    if (!user_is_logged_in()) {
+      $output .= drupal_get_form('community_tags_form', array('node' => $node, 'cloud' => $cloud, 'nid' => $node->nid, 'vid' => $vid, 'tags' => NULL, 'inline' => $inline, 'multiple' => count($vids)));
+    }
+    else {
+      // TODO might want to optimise this call
+      if (!count($tags)) {
+        // User has not yet added tags to this node yet. Show form.
+        $output .= drupal_get_form('community_tags_form', array('node' => $node, 'cloud' => $cloud, 'nid' => $node->nid, 'vid' => $vid, 'tags' => NULL, 'inline' => $inline, 'multiple' => count($vids)));
+      }
+      elseif (user_access('edit own tags')) {
+        // User has already tagged this node, but can edit their tags. Show form
+        // with the user's tags pre-populated.
+        $names = community_tags_flatten($tags);
+        $tags = taxonomy_implode_tags($tags);
+        $output .= drupal_get_form('community_tags_form', array('node' => $node, 'cloud' => $cloud, 'nid' => $node->nid, 'vid' => $vid, 'tags' => $tags, 'inline' => $inline, 'multiple' => count($vids)));
+      }
+      else {
+        // Sorry, no more adding tags for you!
+        $output .= '<p>'. t('You have already tagged this post. Your tags: ') . theme('community_tags', $tags) .'</p>';
+      }
+
+    }
+
+  }
+
+  return $output;
+}
+
+/**
+ * Theme function to display a list of community tags via tagadelic.
+ *
+ * @ingroup themeable
+ */
+function theme_community_tags($tags) {
+  return '<div class="cloud">'. (count($tags) ? theme('tagadelic_weighted', $tags) : t('None')) .'</div>';
+}
+
+/**
+ * Theme function to display a list of community tags as simple links.
+ *
+ * @ingroup themeable
+ */
+function theme_community_tags_links($tags) {
+  $output = '<ul class="links">';
+  foreach ($tags as $tag) {
+    $output .= '<li>';
+    $output .= l($tag->name, taxonomy_term_path($tag), array('id' => 'ct-link-'.$tag->tid));
+    $output .= '<span class="ct-count">('. $tag->count .')</span>';
+    $output .= '</li>';
+  }
+  $output .= '</ul>';
+  return $output;
+}
+
+/**
+ * Community tags view tags access check
+ */
+function _community_tags_view_access() {
+  return user_access('access content') && (user_access('view tags') || user_access('tag content'));
+}
+
+/**
+ * Community tags view tags access
+ */
+function _community_tags_tag_access() {
+  return user_access('tag content');
+}
+
+/**
+ * Menu access callback; Check if the user can access the 'Tags' local task on
+ * node pages.
+ */
+function _community_tags_tab_access($node) {
+  return _community_tags_is_tagging_view_visible($node, COMMUNITY_TAGS_MODE_TAB) && _community_tags_view_access();
+}
+
+/**
+ * Menu access callback; Check if the user can access the 'Tags' local task on
+ * node pages.
+ */
+function _community_tags_mgmt_tab_access($node) {
+  global $user;
+  $enabled_vids = _community_tags_vids_for_node_type($node->type);
+  return !empty($enabled_vids) && (user_access('manage tags') || (user_access('manage tags on own content') && (isset($user->uid) && $user->uid == $node->uid)));
+}
+
+/**
+ * Helper function for the JS tagger.
+ */
+function community_tags_flatten($tags) {
+  $names = array();
+  foreach ($tags as $tag) {
+    $names[] = $tag->name;
+  }
+  return $names;
+}
+
+/*****************************************************************************
+ * High level community tag ops - API.
+ ****************************************************************************/
+/**
+ * Perform "user tags a node" operation. This should only be called directly as
+ * a result of user tagging activity. Usually via the CT interface but may be
+ * called by other modules providing their own interface.
+ *
+ * Terms may be new terms or existing terms either previously used to tag this term or not.
+ *
+ * Allow moderation of added tags via hooks.
+ *
+ * @param $tags_and_terms array:
+ *  "terms" => array of existing terms to add keyed by tid
+ *  "new tags" => array of tag words to add
+ */
+function community_tags_tag($node, $user, $vid, $tags_and_terms) {
+  // Allow moderation of added tags via hooks. Modules may do what they like to tags and terms.
+  // Any new tags that are left will have terms created for them.
+  drupal_alter('community_tags_moderate_tags', $tags_and_terms, 'tag', $node, $user, $vid);
+
+  // convert new tags to new terms
+  if(!empty($tags_and_terms['new tags'])) {
+    foreach($tags_and_terms['new tags'] as $tag_name) {
+      // create term.
+      $edit = array('vid' => $vid, 'name' => $tag_name);
+
+      // the following call may result in contrib hook_invocations
+      $status = taxonomy_save_term($edit);
+      $new_term = taxonomy_get_term($edit['tid']);
+      $tags_and_terms['terms'][$new_term->tid] = $new_term;
+    }
+  }
+
+  // add tags
+  community_tags_add_tags($node, $user, $tags_and_terms['terms']);
+
+  // invoke hooks
+  module_invoke_all('community_tags_tagged', $node, $user, $tags_and_terms['terms'], $vid);
+}
+
+/**
+ * Perform "user untags a node" operation. This should only be called directly as
+ * a result of user tagging activity. Usually via the CT interface but may be
+ * called by other modules providing their own interface.
+ *
+ * Allow moderation of added tags via hooks.
+ *
+ * @param $tags_and_terms array:
+ *  "terms" => array of existing terms to add keyed by tid
+ *  "new tags" => array of tag words to add
+ */
+function community_tags_untag($node, $user, $vid, $tags_and_terms) {
+  // Allow moderation of removed tags via hooks. Modules may do what they like to tags and terms.
+  // Exmaple use: moderator might have added extra terms that may need removing.
+  drupal_alter('community_tags_moderate_tags', $tags_and_terms, 'untag', $node, $user, $vid);
+
+  // remove tags
+  if(!empty($tags_and_terms['terms'])) {
+    community_tags_remove_tags($node, $user, $tags_and_terms['terms']);
+  }
+
+  // invoke hooks
+  module_invoke_all('community_tags_untagged', $node, $user, $tags_and_terms['terms'], $vid);
+
+}
+
+/**
+ * Add tags to given node, attributed to given user, for all the given terms. Other modules
+ * or plugins may call this to add tags as a consquence of some action that is
+ * not explicitly a tagging operation.
+ *
+ * @param $node
+ *  A single node object with minimal properties of {nid, type}.
+ * @param $user
+ *  A single user object with minimal properties of {uid}.
+ * @param $terms
+ *  An array of term objects with minimal properties of {tid, vid}.
+ */
+function community_tags_add_tags($node, $user, $terms) {
+  foreach($terms as $term) {
+    _community_tags_add_tag($node->nid, $term->tid, $user->uid);
+  }
+
+  // invoke hooks
+  module_invoke_all('community_tags_tags_added', $node, $user, $terms);
+}
+
+/**
+ * Remove a users' tags for specified terms from a node. Other modules
+ * or plugins may call this to remove tags as a consquence of some action that is
+ * not explicitly an un-tagging operation.
+ *
+ * @param $user
+ *  User object. If null tags are deleted from node for all users.
+ * @param $terms
+ *  Array of terms keyed on tid.
+ */
+function community_tags_remove_tags($node, $user, $terms, $source = 'community_tags') {
+  // get the set of tags that will be removed
+  $tags_for_removal = _community_tags_get_tags($node, $user, $terms);
+
+  // delete with general purpose delete function
+  $tags_removed_count = _community_tags_delete_tags($node, $user, $terms);
+
+  // invoke hooks
+  module_invoke_all('community_tags_tags_removed', $node, $user, $terms, $source, $tags_for_removal, $tags_removed_count);
+
+  return $tags_removed_count;
+}
+
+/**
+ * Implementation of hook_community_tags_tags_removed(). Remove redundant terms if configured to do so.
+ */
+function community_tags_community_tags_tags_removed($node, $user, $terms, $source, $removed_tags, $tags_removed_count) {
+  // check source for batch tag removal with term sync disabled
+  if($source == 'community_tags:purge:no_sync') {
+    return;
+  }
+
+  // delete redundant terms
+  // only apply if content type/node type allows
+  $ctags_by_type = community_tags_tags_group_by($removed_tags, 'type');
+  foreach($ctags_by_type as $type => $ctags_for_type) {
+    // now group by vid as logic depends on combination of vid and node type
+    $ctags_for_type_by_vid = community_tags_tags_group_by($ctags_for_type, 'vid');
+
+    foreach($ctags_for_type_by_vid as $vid => $ctags_for_type_and_vid) {
+      if(_community_tags_is_opmode(COMMUNITY_TAGS_OPMODE_DELETE_ORPHAN_TERMS, $vid, $type)) {
+        // get the unique set of terms to cleanup
+        $ctags_for_type_and_vid_by_tid = community_tags_tags_group_by($ctags_for_type_and_vid, 'tid');
+        // @todo make sure this isn't too onerous - we're probably in an AJAX call here...
+        $tids = array_keys($ctags_for_type_and_vid_by_tid);
+        _community_tags_cleanup_orphaned_tags_by_tids($tids);
+      }
+    }
+  }
+}
+
+/*****************************************************************************
+ * Node (hook_nodeapi) handlers for CT.
+ *
+ * Permissions - user editing a node may cause community tags to be created
+ * or deleted without having explicit permission to do so.
+ *****************************************************************************/
+/**
+ * Node has been deleted. Delete all community tags for the deleted node.
+ * Node terms will have been removed.
+ */
+function _community_tags_node_delete($node) {
+  // delete all tags for this node
+  community_tags_remove_tags($node, NULL, NULL, 'node:delete');
+}
+
+/*****************************************************************************
+ * Taxonomy hook handlers
+ ****************************************************************************/
+/**
+ * Term has been deleted. Delete all community tags for the deleted term.
+ */
+function _community_tags_term_delete($term) {
+  // delete all tags for this term
+  community_tags_remove_tags(NULL, NULL, array($term->tid => $term), 'term:delete');
+}
+
+/*****************************************************************************
+ * User hook handlers
+ ****************************************************************************/
+/**
+ * User has been deleted. Delete all user tags for the deleted user.
+ */
+function _community_tags_user_delete($user) {
+  // remove all tags for this user
+  community_tags_remove_tags(NULL, $user, NULL, 'user:delete');
+}
+
+/*****************************************************************************
+ * Orphaned term handling.
+ ****************************************************************************/
+/**
+ * Check for orphaned node terms and delete if required - by default doesn't.
+ * Provides fix for [#984462] - "When a tag is no longer attached to any nodes, (provide option to) automatically remove it from its taxonomy vocabulary"
+ *
+ * @param $tids
+ *  Doesn't check settings.
+ */
+function _community_tags_cleanup_orphaned_tags_by_tids($tids) {
+  $count = 0;
+  if(!empty($tids)) {
+    // only delete if not ctag, not node term, not involved in relation, has no synonyms, and has no children
+    $results = db_query(
+      "SELECT td.* FROM term_data td
+      LEFT JOIN term_hierarchy th ON th.parent = td.tid
+      LEFT JOIN term_relation tr ON tr.tid1 = td.tid OR tr.tid2 = td.tid
+      LEFT JOIN term_synonym ts ON ts.tid = td.tid
+      LEFT JOIN term_node tn ON tn.tid = td.tid
+      LEFT JOIN community_tags ct ON ct.tid = td.tid
+      WHERE td.tid IN (".db_placeholders($tids).")
+      AND tn.tid IS NULL
+      AND ct.tid IS NULL
+      AND th.parent IS NULL
+      AND (tr.tid1 IS NULL AND tr.tid2 IS NULL)
+      AND ts.tid IS NULL", $tids);
+
+    while($row = db_fetch_object($results)) {
+      _community_tags_delete_redundant_term($row->tid);
+    }
+  }
+  return $count;
+}
+
+/**
+ * @todo set flag to skip tag delete attempt in community_tags_taxonomy() invocation
+ */
+function _community_tags_delete_redundant_term($tid) {
+  // Be careful of other dependencies on taxonomy terms
+  // Hook community_tags_taxonomy() will be invoked which will attempt to delete
+  // tags for the deleted term. There will be none so a pointless step - potential to set a flag to skip.
+  taxonomy_del_term($tid);
+}
+
+/*****************************************************************************
+ * Visibility and access helpers
+ ****************************************************************************/
+/**
+ * Check that tagging form is configured for display for given node in given context. Does not check user access.
+ *
+ * @param $context
+ *  Either COMMUNITY_TAGS_MODE_BLOCK, COMMUNITY_TAGS_MODE_BLOCK, or COMMUNITY_TAGS_MODE_INLINE.
+ */
+function _community_tags_is_tagging_view_visible($node, $context) {
+  if($node && variable_get('community_tags_display_'. $node->type, COMMUNITY_TAGS_MODE_TAB) == $context) {
+    $vids = community_tags_vids_for_node($node);
+    if(!empty($vids)) {
+      return TRUE;
+    }
+  }
+}
+
+/**
+ * Check whether a given node has one or more community tagged vocabularies associated with its type.
+ */
+function community_tags_vids_for_node($node) {
+  // Allow both nids and nodes
+  if (is_numeric($node)) {
+    $node = node_load($node);
+  }
+
+  return _community_tags_vids_for_node_type($node->type);
+}
+
+/**
+ * Check whether given node type has one or more community tagged vocabularies associated with it.
+ */
+function _community_tags_vids_for_node_type($type) {
+  $settings = _community_tags_get_settings(NULL, NULL, TRUE);
+  $vids = array();
+  foreach($settings as $vid => $settings_for_vid) {
+    if(!empty($settings_for_vid['types'][$type])) {
+      $vids[$vid] = $vid;
+    }
+  }
+  return $vids;
+}
+
+/**
+ * Check whether given node type has one or more community tagged vocabularies associated with it.
+ */
+function _community_tags_vids($type = NULL) {
+  $community_tagged = variable_get('community_tags_vocabularies', array());
+  if($type) {
+    $result = db_query("SELECT vnt.vid FROM {vocabulary_node_types} vnt JOIN {vocabulary} v ON v.vid = vnt.vid AND v.tags = 1 WHERE vnt.type = '%s'", $type);
+  }
+  else {
+    $result = db_query("SELECT vnt.vid FROM {vocabulary_node_types} vnt JOIN {vocabulary} v ON v.vid = vnt.vid AND v.tags = 1");
+  }
+  $vids = array();
+  while ($vid = db_fetch_object($result)) {
+    if (isset($community_tagged[$vid->vid])) {
+      $vids[$vid->vid] = $vid->vid;
+    }
+  }
+  return $vids;
+}
+
+/**
+ * Determine whether such and such a CT operation mode is set for tagging in given vocabulary. Returns
+ * true if any of the modes is set.
+ *
+ * @param $modes
+ *  A bitwise OR of the operation modes to test.
+ *
+ * @todo Add settings to admin screen. Is it necessary to have settings per vid / per type?
+ */
+function _community_tags_is_opmode($modes, $vid, $content_type) {
+  $settings = _community_tags_get_settings($vid, $content_type);
+  if($settings) {
+    return $settings['opmode'] & $modes;
+  }
+  // default to keeping node terms and community tags in sync
+  return FALSE;
+}
+
+/**
+ * Get CT settings. This is more complex than it might be because the validity of
+ * CT settings depends on various other factors that may change after a CT configuration
+ * has been changed. This gaurantees that returned settings are valid so users should
+ * never see any broken displays. Factors that may invalidate a configuration are:
+ *
+ * - Display handler: A pluggable display handler is not available - e.g. tagadelic is disabled.
+ * - Vocabulary settings: A vocabulary is not set to free-tagging which is a requirement of CT.
+ * - Assigned content types: A content type is no longer assigned to the vocabulary.
+ *
+ *
+ * @return
+ */
+function _community_tags_get_settings($vid = NULL, $content_type = NULL, $valid = FALSE) {
+  static $settings, $valid_settings;
+
+  $handlers = _community_tags_get_display_handlers();
+  $default_display_handler = isset($handlers['tagadelic']) ? 'tagadelic' : 'links';
+  $default_settings = array(
+    'assigned' => TRUE,
+    'opmode' => COMMUNITY_TAGS_OPMODE_NOSYNC,
+    'display_handler' => $default_display_handler,
+    'enabled' => FALSE,
+    'tag_links' => array('teaser' => 'teaser'),
+  );
+
+
+  if (!$settings) {
+    // Build list of available free-tagging vocabularies
+    // $valid_CT_vocabularies = _community_tags_vids();
+    $CT_vocabularies = variable_get('community_tags_vocabularies', array());
+
+    $result = db_query(
+      'SELECT v.vid, v.name, v.tags, nt.name type_name, nt.type
+       FROM {vocabulary} v
+       LEFT JOIN {vocabulary_node_types} vnt ON vnt.vid = v.vid
+       LEFT JOIN {node_type} nt ON nt.type = vnt.type
+       ORDER BY v.weight, v.name, nt.name');
+
+    $settings = array();
+    $valid_settings = array();
+    while ($row = db_fetch_object($result)) {
+      // create structure grouped on vocabulary
+      if(!isset($settings[$row->vid])) {
+        $settings[$row->vid] = array('name' => $row->name, 'tagging' => $row->tags, 'types' => array());
+      }
+      // check if a content type is assigned
+      if(!empty($row->type)) {
+        // if there are saved settings for this combination of vocabulary and row then add them to this settings array
+        if($saved_settings = $CT_vocabularies[$row->vid]['types'][$row->type]) {
+          // provided for backwards compatibility with CT version 1
+          if(!empty($CT_vocabularies[$row->vid]['is_enabled'])) {
+            $saved_settings['enabled'] = 1;
+          }
+
+          // add saved settings
+          $settings_for_vid_and_type = $saved_settings;
+          // set useful defaults that are not saved
+          $settings_for_vid_and_type['type_name'] = $row->type_name;
+          $settings_for_vid_and_type['assigned'] = TRUE;
+
+          $settings_for_vid_and_type = array_merge($default_settings, $settings_for_vid_and_type);
+          if($settings[$row->vid]['tagging'] && $saved_settings['enabled']) {
+            $valid_settings[$row->vid]['types'][$row->type] = $settings_for_vid_and_type;
+          }
+        }
+        else {
+          $settings_for_vid_and_type = $default_settings;
+          $settings_for_vid_and_type['type_name'] = $row->type_name;
+        }
+
+        $settings[$row->vid]['types'][$row->type] = $settings_for_vid_and_type;
+      }
+    }
+  }
+
+  // either return from valid settings only or from all settings
+  $rt = $valid ? $valid_settings : $settings;
+
+  if ($vid && $content_type) {
+    $return = !empty($rt[$vid]['types'][$content_type]) ? $rt[$vid]['types'][$content_type] : FALSE;
+    return $return;
+  }
+  elseif ($vid) {
+    return !empty($rt[$vid]) ? $rt[$vid] : FALSE;
+  }
+  else {
+    return $rt;
+  }
+}
+
+/*****************************************************************************
+ * Tag/term input processors.
+ *****************************************************************************/
+/**
+ * Process tags and terms - resolve tags (supplied as the tag name) to existing terms and
+ * identify new tags - but don't create.
+ *
+ * Give other modules a chance to have their say. E.g. unitag may replace a new tag with an existing term.
+ *
+ * @param $terms
+ *  A data structure as processed by taxonomy_save_node. Maybe tags, terms, tids etc.
+ *
+ * @param $vids
+ *  The valid vocabulary vids - ignore all other terms and tags
+ *
+ * @return
+ *  An array of terms and new tags grouped by vid. Each element has the following structure:
+ *    'terms' => array of term objects
+ *    'new tags' => array of new tag names
+ */
+function _community_tags_node_process_tags_and_terms($tags_and_terms, $vids, $node, $uid) {
+  $processed_terms = array();
+
+  if (is_array($tags_and_terms)) {
+    foreach ($tags_and_terms as $key => $term) {
+      if (!is_numeric($key) && $key == 'tags') {
+
+        // tags are grouped by vid
+        foreach ($term as $vid => $vid_value) {
+          // only process ctag vocabulary tags
+          if (isset($vids[$vid])) {
+            // make sure we pass back at least an empty array for the provided vid
+            $processed_terms[$vid] = array('terms' => array(), 'new tags' => array());
+            // handle array of tags or comma seperated list of tags
+            $vid_tags = is_array($vid_value) ? $vid_value : drupal_explode_tags($vid_value);
+
+            foreach ($vid_tags as $tag) {
+              // See if the term exists in the chosen vocabulary
+              // and return the tid, otherwise, add a new record.
+              $matching_terms = taxonomy_get_term_by_name($tag);
+              $matching_term = NULL; // tid match if any.
+              foreach ($matching_terms as $matching_term) {
+                if ($matching_term->vid == $vid) {
+                  break;
+                }
+              }
+
+              if (!$matching_term) {
+                $processed_terms[$vid]['new tags'][] = $tag;
+              }
+              else {
+                $processed_terms[$vid]['terms'][$matching_term->tid] = $matching_term;
+              }
+            }
+          }
+        }
+      }
+      else if (is_array($term)) {
+        foreach ($term as $tid) {
+          if ($tid) {
+            $term_object = taxonomy_get_term($tid);
+            if($term_object && isset($vids[$term_object->vid])) {
+              if(!isset($processed_terms[$term_object->vid])) {
+                $processed_terms[$term_object->vid] = array('terms' => array(), 'new tags' => array());
+              }
+              $processed_terms[$term_object->vid]['terms'][$tid] = $term_object;
+            }
+          }
+        }
+      }
+      else if ($term) {
+        $term_object = !is_object($term) ? taxonomy_get_term($term) : $term;
+
+        if($term_object && isset($vids[$term_object->vid])) {
+          if(!isset($processed_terms[$term_object->vid])) {
+            $processed_terms[$term_object->vid] = array('terms' => array(), 'new tags' => array());
+          }
+          $processed_terms[$term_object->vid]['terms'][$term_object->tid] = $term_object;
+        }
+      }
+    }
+  }
+
+  // invoke hooks - processed terms may be altered in any way
+  drupal_alter('community_tags_moderate_terms', $processed_terms, $node, $uid);
+
+  return $processed_terms;
+}
+
+/*****************************************************************************
+ * Query helpers
+ ****************************************************************************/
+
+/**
+ * Retrieve list of tags for a given node that belong to a user.
+ */
+function community_tags_get_user_node_tags($user, $node, $vid) {
+  $tags_and_terms = community_tags_get_user_node_tags_and_terms($user, $node, $vid);
+
+  // merge terms and new tags (i.e. have no tid) into array of tags
+  $tags = $tags_and_terms['terms'];
+  if (!empty($tags_and_terms['new tags'])) {
+    foreach($tags_and_terms['new tags'] as $new_tag) {
+      $tags[$new_tag] = (object)array('name' => $new_tag, 'tid' => $new_tag);
+    }
+  }
+
+  return $tags;
+}
+
+/**
+ * Retrieve list of tags for a given node that belong to a user.
+ */
+function community_tags_get_user_node_tags_and_terms($user, $node, $vid) {
+  $tags_and_terms = array('terms' => array(), 'new tags' => array());
+  $tags_and_terms['terms'] = _community_tags_get_node_user_vid_tags($node, $user, $vid);
+
+  // allow other modules to have a say
+  drupal_alter('community_tags_get_user_node_tags', $tags_and_terms, $user, $node, $vid);
+
+  return $tags_and_terms;
+}
+
+/**
+ * Retrieve list of tags for a given node and user. Includes a count of the number of users who have tagged it.
+ *
+ * @return
+ *  Array of objects {tid, name, count} keyed on tid. The count is the number of users who share the tag.
+ */
+function _community_tags_get_node_user_vid_tags($node, $user, $vid) {
+  $tags = _community_tags_get_tag_counts($node, $user, NULL, $vid);
+  $tags_by_tid = array();
+  foreach($tags as $tag) {
+    $tags_by_tid[$tag->tid] = $tag;
+  }
+  return $tags_by_tid;
+}
+
+/*****************************************************************************
+ * Low level community tag operations. Keep cruft out of these. For an API, wrap
+ * these in higher level functions that can include hook invocation, permission
+ * checking, configuration checks, bulk operations etc.
+ ****************************************************************************/
+
+/**
+ * Add a community tag. Nid and vid and user should be valid
+ */
+function _community_tags_add_tag($nid, $tid, $uid) {
+  $time = time();
+  db_query('INSERT INTO {community_tags} (tid, nid, uid, date) VALUES (%d, %d, %d, %d)', $tid, $nid, $uid, $time);
+}
+
+/**
+ * Remove tags from the database as specified by $node, $user, and $term.
+ *
+ * @see _communtity_tags_get_tags_where_clause().
+ *
+ * @return number of rows deleted
+ */
+function _community_tags_delete_tags($node, $user, $term) {
+  $where = _communtity_tags_get_tags_where_clause($node, $user, $term);
+  $where_clause = $where['where'];
+
+  $result = db_query("DELETE FROM {community_tags} WHERE $where_clause", $where['args']);
+
+  return db_affected_rows();
+}
+
+
+/*****************************************************************************
+ * SQL query functions.
+ *****************************************************************************/
+ /**
+  * Get tag counts from the database as specified by $node, $user, and $term.
+  *
+  * @param $options
+  *  Array containing options:
+  *  - 'dbresult' => boolean - if set will return the database query object - (required for tagadelic)
+  *
+  * @see _communtity_tags_get_tags_where_clause().
+  *
+  * @return
+  *  Array of tag counts. Each tag is an object with properties: {tid, nid, count, vid, type}.
+  */
+ function _community_tags_get_tag_counts($node, $user, $term, $vid = NULL, $options = array()) {
+   $where = _communtity_tags_get_tags_where_clause($node, $user, $term, 'ct');
+   $where_clause = $where['where'];
+   $args = $where['args'];
+
+   if($vid) {
+     $args[] = $vid;
+     $where_clause .= " AND td.vid = %d ";
+   }
+
+   $sql = "SELECT ct.nid, ct.tid, count(ct.uid) count, td.vid, n.type, td.name
+    FROM {community_tags} ct
+    INNER JOIN {term_data} td ON td.tid = ct.tid
+    INNER JOIN {node} n ON n.nid = ct.nid
+    WHERE $where_clause
+    GROUP BY ct.nid, ct.tid ORDER BY count DESC";
+
+   $result = db_query($sql, $args);
+   if(!empty($options['dbresult']) && $options['dbresult']) {
+     return $result;
+   }
+   else {
+     $tags = array();
+
+     while ($term = db_fetch_object($result)) {
+       $tags[] = $term;
+     }
+
+     return $tags;
+   }
+ }
+
+/**
+ * Get unique tags (with counts) from the database as specified by $node, $user, and $term.
+ *
+ * @see _communtity_tags_get_tags_where_clause().
+ *
+ * @return
+ *  Array of tags. Each tag is an object with properties: {tid, nid, uid, count, vid, type}.
+ */
+function _community_tags_get_tags($node, $user, $term, $vid = NULL, $options = array()) {
+  $where = _communtity_tags_get_tags_where_clause($node, $user, $term, '_ct');
+  $sub_where_clause = $where['where'];
+  $args = $where['args'];
+
+  if($vid) {
+    $args[] = $vid;
+    $sub_where_clause .= " AND _td.vid = %d ";
+  }
+
+  $sql =
+  "SELECT ct.nid, ct.tid, ct.uid, count(ct2.uid) count, ct.vid, ct.type, ct.name
+   FROM (
+     SELECT _ct.tid, _ct.nid, _ct.uid, _td.vid, _td.name, _n.type FROM {community_tags} _ct
+     INNER JOIN {term_data} _td ON _td.tid = _ct.tid
+     INNER JOIN {node} _n ON _n.nid = _ct.nid
+     WHERE $sub_where_clause
+   ) AS ct
+   INNER JOIN {community_tags} ct2 ON ct2.tid = ct.tid AND ct2.nid = ct.nid
+   GROUP BY ct.nid, ct.tid, ct.uid ORDER BY count DESC";
+
+
+  $result = db_query($sql, $args);
+  $tags = array();
+
+  while ($term = db_fetch_object($result)) {
+    $tags[] = $term;
+  }
+
+  return $tags;
+}
+
+/**
+ * @param $node
+ *  null or single node object
+ * @param $user
+ *  null or single user object
+ * @param term
+ *  may be NULL for all terms, a single term, or an array of terms keyed on tid.
+ */
+function _communtity_tags_get_tags_where_clause($node, $user, $term, $table_alias = NULL) {
+  $where_clauses = array();
+
+  $table_alias = $table_alias ? $table_alias.'.' : '';
+
+  if(!empty($node)) {
+    $args[] = $node->nid;
+    $where_clauses[] = $table_alias."nid = %d";
+  }
+
+  if(!empty($user)) {
+    $args[] = $user->uid;
+    $where_clauses[] = $table_alias."uid = %d ";
+  }
+
+  if(!empty($term)) {
+    if(is_array($term) && count($term) > 1) {
+      $tids = array_keys($term);
+      $args = array_merge($args, $tids);
+      $where_clauses[] = $table_alias."tid IN (".db_placeholders($tids).") ";
+    }
+    else {
+      $tid = is_array($term) ? reset(array_keys($term)) : $term->tid;
+      $args[] = $tid;
+      $where_clauses[] = $table_alias."tid = %d ";
+    }
+  }
+
+  $where_clause_str = implode(' AND ', $where_clauses);
+  return array('args' => $args, 'where' => $where_clause_str);
+}
+
+/**
+ * Helper to return the set of ctags grouped by a given property.
+ * @param $group_by
+ *  Typically one of nid, tid, or uid.
+ */
+function community_tags_tags_group_by($ctags, $group_by) {
+  $grouped_ctags = array();
+  foreach($ctags as $ctag) {
+    $grouped_ctags[$ctag->{$group_by}][] = $ctag;
+  }
+  return $grouped_ctags;
+}
+
+/**
+ * Clear the block cache for all users for the node page.
+ */
+function _community_tags_community_tags_block_cache_invalidate($node) {
+  static $once = FALSE;
+
+  if(!$once) {
+    if(_community_tags_is_tagging_view_visible($node, COMMUNITY_TAGS_MODE_BLOCK)) {
+      $url = url('node/'.$node->nid, array('absolute' => TRUE));
+      $cid = 'community_tags:0:%%:'. $url;
+      // only valid if block caching per user and page
+      db_query("DELETE FROM {cache_block} WHERE cid LIKE '%s'", $cid);
+      $once = TRUE;
+    }
+  }
+}
+
+function _community_tags_add_js() {
+  static $once = FALSE;
+  if(!$once) {
+    drupal_add_js(drupal_get_path('module', 'community_tags') .'/community_tags.js');
+    $once = TRUE;
+  }
+}
+
+function _community_tags_add_css() {
+  static $once = FALSE;
+  if(!$once) {
+    drupal_add_css(drupal_get_path('module', 'community_tags') .'/community_tags.css', 'module');
+    $once = TRUE;
+  }
+}
+
+/**
+ * Return whether user is a trusted tagger.
+ */
+function _community_tags_user_is_trusted_tagger($user, $node) {
+  return node_access('update', $node, $user);
+}

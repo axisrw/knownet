@@ -1,0 +1,178 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * Provides Dialog integration for community tags. 'Tag this' links in teasers
+ * and nodes are altered to open a dialog.
+ */
+
+/**
+ * Implementation of hook_menu().
+ */
+function community_tags_ui_menu() {
+  $items['community-tags/%ctools_js/tag/%node/%'] = array(
+    'title' => 'Tag content',
+    'page callback' => 'community_tags_ui_tag',
+    'page arguments' => array(3, 4, 1),
+    'access arguments' => array('tag content'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_link_alter().
+ */
+function community_tags_ui_link_alter(&$links, $node) {
+  foreach ($links as $id => $link) {
+    if(strpos($id, 'community_tag') === 0) {
+      dialog_add_js();
+      $links[$id]['href'] = str_replace('community-tags/tag', 'community-tags/nojs/tag', $link['href']);
+      $links[$id]['attributes']['class'] = 'ctools-use-dialog';
+    }
+  }
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function community_tags_ui_theme() {
+  return array(
+    'community_tags_ui_form' => array(
+      'arguments' => array('form' => NULL),
+    ),
+  );
+}
+
+/**
+ * Menu page callback for community-tags/%ctools_js/tag/%node/%vocabulary
+ */
+function community_tags_ui_tag($node, $vid, $ajax = FALSE, $pid = NULL) {
+  global $user;
+  module_load_include('inc', 'community_tags', 'community_tags.pages');
+
+  if (!$ajax) {
+    return community_tags_node_view($node, FALSE, $vid);
+  }
+
+  if (!user_access('tag content')) {
+    $commands = array();
+    $commands[] = dialog_command_display(t('Access denied'), t('You are not authorized to access this page.'));
+    ctools_ajax_render($commands);
+  }
+
+  ctools_include('ajax');
+  $tags = community_tags_get_user_node_tags($user, $node, $vid);
+
+  $names = community_tags_flatten($tags);
+  $tags = taxonomy_implode_tags($tags);
+  $edit = array('node' => $node, 'nid' => $node->nid, 'vid' => $vid, 'tags' => $tags, 'inline' => FALSE, 'multiple' => 1);
+
+  $form_state = array(
+    'ajax' => TRUE,
+    // 'title' => t('Tag %title', array('%title' => $node->title)),
+    'title' => t('Tag this'),
+    'args' => array('edit' => $edit),
+  );
+
+  // returns an array containing a dialog display command
+  $output = dialog_form_wrapper('community_tags_form', $form_state);
+
+  if (empty($output)) {
+    $messages = drupal_get_messages('status', FALSE);
+    if(!empty($messages)) {
+      // allow confirmation messages to be output etc.
+      $dismiss = l(t('Close'), '', array('attributes' => array('onClick' => 'Drupal.Dialog.dismiss(); return false;')));
+      // Re-assure the user that it's safe to close the dialog by providing a close link.
+      $output[] = dialog_command_display(t('Tag submitted'), $dismiss);
+    }
+    else {
+      // if no messages - just dismiss
+      $output[] = dialog_command_dismiss();
+    }
+  }
+
+  // would customize the dialog but hieght set here doesn't work right.
+  foreach ($output as &$command_output) {
+    // $command_output['options'] = array('height' => '400');
+  }
+
+  ctools_ajax_render($output);
+}
+
+/**
+ * Implementation of hook_form_alter().
+ */
+function community_tags_ui_form_community_tags_form_alter(&$form, $form_state, $form_id) {
+  // alter the community tags form if being loaded into a dialog
+  if (!empty($form_state['ajax'])) {
+    // make the save button a dialog button
+    $form['submit']['#attributes']['class'] = 'ctools-dialog-button';
+    $form['submit']['#value'] = t('Save tags');
+
+    // prevent usual ui JS processing
+    unset($form['tags']['#attributes']['class']);
+
+    // re-style the form to fit a dialog better
+    $form['tags']['#type'] = 'textarea';
+    $form['tags']['#rows'] = 3;
+    $form['tags']['#cols'] = 25;
+    $form['tags']['#resizable'] = TRUE;
+
+    // add a cancel button
+    $form['cancel'] = array(
+      '#type' => 'button',
+      '#value' => t('Cancel'),
+      '#weight' => -1,
+      '#attributes' => array(
+        'class' => 'ctools-dialog-button ctools-use-dialog-processed',
+        'onClick' => 'Drupal.Dialog.dismiss(); return false;',
+      ),
+    );
+
+    $form['#theme'] = 'community_tags_ui_form';
+  }
+}
+
+/**
+ * This just renders the usual JS enabled CT form in the dialog. Doesn't work if the 'enter'
+ * is pressed instead of the add button. NOT CURRENTLY USED.
+ *
+ * @todo - handle enter button and make available as alternative dialog style.
+ */
+function community_tags_ui_tag_alternative($node, $vid, $ajax = FALSE, $pid = NULL) {
+  global $user;
+  module_load_include('inc', 'community_tags', 'community_tags.pages');
+
+  // TODO: comment_reply does a whole bunch of access checking and other
+  // stuff. Not sure how much we should do here, beyond the user_access below
+  if (!user_access('tag content')) {
+    // TODO: maybe we should have a dialog_access_denied().
+    $commands = array();
+    $commands[] = dialog_command_display(t('Access denied'), t('You are not authorized to access this page.'));
+    ctools_ajax_render($commands);
+    // implicit exit();
+  }
+
+  $output = community_tags_node_view($node, FALSE, $vid);
+
+  if (!$ajax) {
+    return $output;
+  }
+  else {
+    dialog_ajax_render(t('Tag %title', array('%title' => $node->title)), $output, array('width' => 300));
+  }
+}
+
+/**
+ * Basic theme function to add a node title to the popup.
+ */
+function theme_community_tags_ui_form($form) {
+  $output .= '<h3>'.$form['node']['#value']->title.'</h3>';
+  $output .= drupal_render($form);
+  return $output;
+}
+
+

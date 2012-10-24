@@ -1,0 +1,178 @@
+<?php
+// $Id$
+
+/**
+ * @file
+ * This module enables question authors to select a "best answer" to a question.
+ * 
+ * @author Chip Cleary
+ * 
+ */
+
+ /* 
+  * What it does:
+  *
+  * <TBD>
+  *
+  * How it works:
+  * <TBD>
+  *
+  */
+
+/**
+ * Implement hook_help().
+ */
+function best_answer_help($path, $arg) {
+  switch ($path) {
+    case "admin/help#modulename":
+      return '<p>'. t('Enables question authors to select a "best answer" to a question.') .'</p>';
+  }
+}
+
+
+/*
+ * Implement hook_nodeapi. 
+ */
+function best_answer_nodeapi(&$node, $op, $teaser) {
+  global $user;
+  $base = drupal_get_path('module', 'best_answer');
+  drupal_add_css($base . '/best_answer.css', 'module');
+  
+  switch ($op) {
+
+
+    case 'view':
+
+      if ($node->type == 'question') {
+        $best_answer = check_plain($_GET['best_answer']);
+        if ($best_answer) {
+          _best_answer_update_best_answer($node, $best_answer);
+          drupal_goto('node/' . $node->nid);
+        }
+      }
+
+      if ($node->type == 'answer') {
+
+	  $question = node_load($node->field_answer_question[0]['nid']);  
+
+        if ($node->field_best_answer_p[0]['value']) {
+           $node->content['best_answer'] = array(
+             '#type'   => 'item',
+             '#prefix' => '<a class="best-answer-this-answer"></a>',
+             '#weight' => -20,
+            );
+        }
+
+        elseif ($user->uid == $question->uid) {
+  
+         $redirect_path = url('node/' . $question->nid, 
+            array(
+             'absolute' => TRUE,
+             'query'    => array('best_answer' => $node->nid),
+            ));
+
+          $node->content['select_best_answer'] = array(
+             '#type'   => 'item',
+             '#prefix' => '<a class="best-answer-select-answer" href=' . $redirect_path . ' title="Select As Best Answer">',
+             '#suffix' => '</a>', 
+             '#weight' => -20,
+          );
+
+         }
+      }
+      break;
+  }
+}
+
+function _best_answer_update_best_answer($question, $new_best_answer) {
+
+  $old_best_answer = $question->field_best_answer[0]['nid'];
+
+  // update the question ... including lock the question if appropriate
+  $question->field_best_answer[0]['nid'] = $new_best_answer;
+  $question->field_question_locked_p[0]['value'] = variable_get('best_answer_lock_question_p', 0);
+  node_save($question);
+
+  // update the old best answer node (if there is one)
+  if ($old_best_answer) {
+    $answer = node_load($old_best_answer);
+    $answer->field_best_answer_p[0]['value'] = 0;
+    node_save($answer);
+  }
+  
+  // update the new best answer node
+  $answer = node_load($new_best_answer);
+  $answer->field_best_answer_p[0]['value'] = 1;
+  node_save($answer);
+  
+}
+
+function best_answer_form_alter(&$form, $form_state, $form_id) {
+
+  switch ($form_id) {
+
+    case 'answers_settings':
+
+      $form['best_answer_settings'] = array(
+        '#type'        => 'fieldset',
+        '#title'       => 'Best Answer Settings',
+        '#description' => 'Settings for the "Best Answers" which question authors may select from the answers provided',
+        '#weight'      => 0,
+      );
+
+      $form['best_answer_settings']['best_answer_lock_question_p'] = array(
+        '#type'        => 'checkbox',
+        '#title'       => 'Lock questions after a "Best Answer" has been selected?',
+        '#description' => 'If set, when a question author sets a "Best Answer", users will no longer be able to add new answers',
+        '#default_value' => variable_get('best_answer_lock_question_p', 0),
+      );
+
+
+      break;
+
+    case 'question_node_form':
+
+      // Hide 'field_best_answer' (this is only used behind the scenes, not directly set by users)
+      $form['field_best_answer']['#prefix'] = '<div style="display: none;">';
+      $form['field_best_answer']['#suffix'] = '</div>';
+
+      break;
+
+    case 'answer_node_form':
+
+      // Hide 'field_best_answer' (this is only used behind the scenes, not directly set by users)
+      $form['field_best_answer_p']['#prefix'] = '<div style="display: none;">';
+      $form['field_best_answer_p']['#suffix'] = '</div>';
+
+      break;
+  }
+}
+
+/**
+ * Implementation of hook_views_default_views_alter().
+ */
+ 
+function best_answer_views_default_views_alter(&$views) {
+
+  // Change the sort order so that "Best Answers" always show up first
+  if (array_key_exists('question_answers', $views)) {
+    $best_answer_sort = array(
+      'order' => 'DESC',
+      'delta' => -1,
+      'id' => 'field_best_answer_p_value',
+      'table' => 'node_data_field_best_answer_p',
+      'field' => 'field_best_answer_p_value',
+      'relationship' => 'none',
+    );
+    $sorts = $views['question_answers']->display['default']->display_options['sorts'];
+	$sorts = array('field_best_answer_p_value' => $best_answer_sort) + $sorts;
+    $views['question_answers']->display['default']->display_options['sorts'] = $sorts;
+  }
+  
+  // Completely update the 'all_questions' view
+  if (array_key_exists('all_questions', $views)) {
+    $file = './' . drupal_get_path('module', 'best_answer') . '/views/all_questions.view.inc';
+    include($file);
+    $views['all_questions'] = $view;
+  }
+}

@@ -1,0 +1,134 @@
+<?php
+// $Id$
+
+/**
+ * @file community_tags_taxonomy.module
+ *
+ * Implements hooks to take over standard taxonomy pages.
+ */
+
+function community_tags_taxonomy_menu_alter(&$items) {
+  $settings = _community_tags_taxonomy_get_settings();
+  foreach($settings as $vocab_settings) {
+    if($vocab_settings['override_term_page']) {
+      $items['taxonomy/term/%']['page callback'] = 'community_tags_taxonomy_term_page';
+      $items['taxonomy/term/%']['file'] = 'community_tags_taxonomy.pages.inc';
+      $items['taxonomy/term/%']['module'] = 'community_tags_taxonomy';
+      break;
+    }
+  }
+}
+
+function _community_tags_taxonomy_get_settings($vid = NULL) {
+  $settings = variable_get('community_tags_taxonomy_settings', array());
+  if($vid) {
+    return !empty($settings[$vid]) ? $settings[$vid] : array('override_term_page' => FALSE);
+  }
+  else {
+    return $settings;
+  }
+}
+
+function community_tags_taxonomy_form_taxonomy_form_vocabulary_alter(&$form, $form_state) {
+  if(isset($form['vid'])) {
+    $settings = _community_tags_taxonomy_get_settings($form['vid']['#value']);
+  }
+  else {
+    $settings = array('override_term_page' => FALSE);
+  }
+
+  $form['community_tags'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Community tags overrides'),
+    '#tree' => TRUE,
+    '#collapsible' => TRUE,
+  );
+
+  $form['submit']['#weight'] = 10;
+  $form['delete']['#weight'] = 10;
+
+  $form['community_tags']['override_term_page'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Override standard term pages with community tags pages'),
+    '#default_value' => $settings['override_term_page'],
+    '#description' => t('Useful if full community tag/node term synchronisation is not enabled and you wish to display all content on the term page that has been community tagged with that term. Node listings are ordered sticky first then by tag popularity.'),
+  );
+
+  $form['#submit'][] = 'community_tags_taxonomy_vocabulary_form_submit';
+}
+
+function community_tags_taxonomy_vocabulary_form_submit($form, &$form_state) {
+  $settings = _community_tags_taxonomy_get_settings();
+  $settings[$form_state['vid']] = $form_state['values']['community_tags'];
+  variable_set('community_tags_taxonomy_settings', $settings);
+  menu_rebuild();
+}
+
+/**
+ * A community tags version of taxonomy_select_nodes. Adds a tag count and
+ * default popularity ordering.
+ *
+ * Finds all nodes that match selected taxonomy conditions.
+ *
+ * @param $tids
+ *   An array of term IDs to match.
+ * @param $operator
+ *   How to interpret multiple IDs in the array. Can be "or" or "and".
+ * @param $depth
+ *   How many levels deep to traverse the taxonomy tree. Can be a nonnegative
+ *   integer or "all".
+ * @param $pager
+ *   Whether the nodes are to be used with a pager (the case on most Drupal
+ *   pages) or not (in an XML feed, for example).
+ * @param $order
+ *   The order clause for the query that retrieve the nodes.
+ * @return
+ *   A resource identifier pointing to the query results.
+ */
+function community_tags_taxonomy_select_nodes($tids = array(), $operator = 'or', $depth = 0, $pager = TRUE, $order = 'n.sticky DESC, tag_count DESC, n.created DESC') {
+  if (count($tids) > 0) {
+    // For each term ID, generate an array of descendant term IDs to the right depth.
+    $descendant_tids = array();
+    if ($depth === 'all') {
+      $depth = NULL;
+    }
+    foreach ($tids as $index => $tid) {
+      $term = taxonomy_get_term($tid);
+      $tree = taxonomy_get_tree($term->vid, $tid, -1, $depth);
+      $descendant_tids[] = array_merge(array($tid), array_map('_taxonomy_get_tid_from_term', $tree));
+    }
+
+    if ($operator == 'or') {
+      $args = call_user_func_array('array_merge', $descendant_tids);
+      $placeholders = db_placeholders($args, 'int');
+      $sql = 'SELECT DISTINCT(n.nid), n.sticky, n.title, n.created, count(n.nid) tag_count FROM {node} n INNER JOIN {community_tags} tn ON n.nid = tn.nid WHERE tn.tid IN ('. $placeholders .') AND n.status = 1 GROUP BY n.nid ORDER BY '. $order;
+      $sql_count = 'SELECT COUNT(DISTINCT(n.nid)) FROM {node} n INNER JOIN {community_tags} tn ON n.nid = tn.nid WHERE tn.tid IN ('. $placeholders .') AND n.status = 1';
+    }
+    else {
+      $joins = '';
+      $wheres = '';
+      $args = array();
+      foreach ($descendant_tids as $index => $tids) {
+        $joins .= ' INNER JOIN {community_tags} tn'. $index .' ON n.nid = tn'. $index .'.nid';
+        $wheres .= ' AND tn'. $index .'.tid IN ('. db_placeholders($tids, 'int') .')';
+        $args = array_merge($args, $tids);
+      }
+      $sql = 'SELECT DISTINCT(n.nid), n.sticky, n.title, n.created, count(n.nid) tag_count FROM {node} n '. $joins .' WHERE n.status = 1 '. $wheres .' GROUP BY n.nid ORDER BY '. $order;
+      $sql_count = 'SELECT COUNT(DISTINCT(n.nid)) FROM {node} n '. $joins .' WHERE n.status = 1 '. $wheres;
+    }
+    $sql = db_rewrite_sql($sql);
+    $sql_count = db_rewrite_sql($sql_count);
+    if ($pager) {
+      $result = pager_query($sql, variable_get('default_nodes_main', 10), 0, $sql_count, $args);
+    }
+    else {
+      $result = db_query_range($sql, $args, 0, variable_get('feed_default_items', 10));
+    }
+  }
+
+  return $result;
+}
+
+
+
+

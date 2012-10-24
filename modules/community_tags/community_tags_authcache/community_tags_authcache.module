@@ -1,0 +1,112 @@
+<?php
+/**
+ * Authcache cycle is thus:
+ * - Node page containing user-specific community tags form is marked for caching by authcache ($is_page_authcache).
+ * - User's tags are removed from the form and added via ajax to cached page.
+ * - Method in JS will be called by authcache by matching value from hook_authcache_ajax().
+ */
+
+/**
+ * Remove the personalised data in the form - i.e. my tags - these will be
+ * loaded via authcache ajax.
+ */
+function community_tags_authcache_form_community_tags_form_alter(&$form, &$form_state) {
+  global $user, $is_page_authcache;
+
+  if($is_page_authcache) {
+    if(_community_tags_tag_access()) {
+      // unset user specific values in the CT form
+      unset($form['tags']['#default_value']);
+      unset($form['tags_refs']['#value']);
+
+      // add ct-processed class to prevent CT adding behaviour until user's
+      // tags are loaded via ajax.
+      $form['tags']['#attributes']['class'] .= ' ct-processed';
+
+      drupal_add_js(drupal_get_path('module', 'community_tags_authcache') .'/community_tags_authcache.js', 'module', 'header');
+    }
+
+    // maintain user role cache keys for clearing selected node pages from authcache page cache
+    _community_tags_authcache_update_role_keys();
+  }
+}
+
+/**
+ * Maintain the set of role combinations. Store in page cache so that it gets
+ * reset when the page cache is cleared.
+ *
+ * This should be called from the code that determines how the updated content
+ * is rendered in the authcached node page. e.g. hook_preprocess for a block
+ * where $is_page_authcache is set. Or in the more general case could be called
+ * by an implementation of hook_authcache_info() or hook_authcache_ajax() but might
+ * result in more redundant calls to cache_clear_all().
+ */
+function _community_tags_authcache_update_role_keys() {
+  global $user;
+
+  // get the list of role keys used so far to cache pages where this function has been invoked.
+  $cache_entry = cache_get('authcache_role_keys', 'cache_page');
+  $keys = !empty($cache_entry->data) ? $cache_entry->data : array();
+
+  // recreate the roles part of the key that is used to cache the current page.
+  $key = _authcache_key($user);
+
+  // update the list of roles keys if necessary
+  if (!isset($keys[$key])) {
+    $keys[$key] = $key;
+    cache_set('authcache_role_keys', $keys, 'cache_page', CACHE_TEMPORARY);
+  }
+}
+
+/**
+ * Implements hook_authcache_ajax().
+ *
+ * Modifies footer JSON for Ajax call. Cached page, add any context needed to get user's tags as part of ajax call.
+ * The value set here will be passed to hooks in authcache_custom.php.
+ */
+function community_tags_authcache_authcache_ajax() {
+  global $user, $theme_key;
+
+  $authcache_ajax = array();
+
+  if (_community_tags_tag_access()) {
+    $authcache_ajax['community_tags'] = 1;
+  }
+
+  return $authcache_ajax;
+}
+
+/**
+ * The CT form is cached along with the rest of the node page
+ * with mytags removed from the form. Users tags are loaded by authcache and cached by the browser.
+ * If any tags are added or removed from node, the cached node page is invalidated which
+ * in turn causes a fresh ajax request for mytags.
+ */
+function community_tags_authcache_community_tags_tags_added($node, $user, $terms) {
+  // invalidate the authcache page cache for this node
+  _community_tags_authcache_invalidate_nodepage_authcache($node);
+}
+
+function community_tags_authcache_community_tags_tags_removed($node, $user, $terms) {
+  // invalidate the authcache page cache for this node
+  _community_tags_authcache_invalidate_nodepage_authcache($node);
+}
+
+/**
+ * Remove selected node pages that have been cached by authcache.
+ */
+function _community_tags_authcache_invalidate_nodepage_authcache($node) {
+  global $base_root;
+
+  // Invalidate cached node page for all roles
+  $cache_entry = cache_get('authcache_role_keys', 'cache_page');
+
+  if(!empty($cache_entry->data)) {
+    $url = url('node/'.$node->nid);
+
+    foreach($cache_entry->data as $role_key) {
+      $cache_key = $role_key . $base_root . $url;
+      cache_clear_all($cache_key, 'cache_page');
+    }
+  }
+}

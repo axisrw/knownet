@@ -1,0 +1,13 @@
+<?php
+// $Id$
+
+/**
+ * Implementation of hook_views_api().
+ */
+function community_tags_views_pack_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'community_tags_views_pack'),
+    //'path' => drupal_get_path('module', 'community_tags_views_pack') . '/includes',
+  );
+}

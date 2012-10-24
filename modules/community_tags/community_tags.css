@@ -1,0 +1,69 @@
+form.community-tags-form .form-submit, form.community-tags-form .form-button {
+  margin: 0;
+}
+
+div.tag-widget {
+  position: relative;
+}
+
+div.tag-widget ul.inline-tags {
+  list-style-type: none;
+  list-style-image: none;
+  background: url('tag.png') no-repeat 0 3px;
+  margin: 0;
+  padding: 0 0 0 22px;
+}
+div.tag-widget ul.inline-tags li {
+  list-style-type: none;
+  list-style-image: none;
+  background: none;
+  float: left;
+  margin: 0 -12px 0 0;
+  padding: 1px 18px 1px 5px;
+  cursor: pointer;
+  position: relative;
+  display: inline;
+}
+div.tag-widget ul.inline-tags li:hover, div.tag-widget ul.inline-tags li.hover {
+  background: #fdd url('delete.png') no-repeat 100% 50%;
+  z-index: 2;
+}
+div.tag-widget input.form-tags {
+  width: 16em;
+}
+.block div.tag-widget input.form-tags {
+  width: 12em;
+}
+html.js span.no-js, html.js input.form-tags {
+  display: none;
+}
+
+div.ct-cloud ul.links {
+  padding: 0pt;
+}
+
+div.ct-cloud ul.links li {
+  display: inline-block;
+}
+
+.ct-count {
+  color: #999;
+}
+
+div.ct-cloud ul.links li .ct-count {
+  margin-left: 0.2em;
+}
+
+.terms ul.links.ct-counts li {
+  padding-left: 0;
+}
+.terms ul.links.ct-counts li > span {
+  padding-left: 1em;
+}
+
+.ct-messages {
+  font-size: 0.8em;
+  line-height: normal;
+  visibility: hidden;
+}
+

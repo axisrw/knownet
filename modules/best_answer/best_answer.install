@@ -1,0 +1,41 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install, update and uninstall functions for the Best Answer module.
+ */
+
+module_load_include('inc', 'content', 'includes/content.crud');
+module_load_include('inc', 'best_answer', 'best_answer.content');
+
+/**
+ * Implementation of hook_install()
+ */
+function best_answer_install() {
+
+  // Create a 'field_best_answer' field for the 'question' cck content type
+  $field = _best_answer_field_best_answer();
+  content_field_instance_create($field);
+
+  // Create a 'field_best_answer_p' field for the 'answer' cck content type
+  $field = _best_answer_field_best_answer_p();
+  content_field_instance_create($field);
+  
+  // Create the administrative setting used
+  variable_set('best_answer_lock_question_p', 0);
+  
+}
+
+/**
+ * Implementation of hook_uninstall()
+ */
+function best_answer_uninstall() {
+
+  // Delete the 'field_best_answer' from the 'question' cck content type
+  content_field_instance_delete('field_best_answer', 'question');
+
+  // Delete the 'field_best_answer' from the 'answer' cck content type
+  content_field_instance_delete('field_best_answer_p', 'answer');
+
+}
+

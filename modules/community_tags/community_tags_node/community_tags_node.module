@@ -1,0 +1,435 @@
+<?php
+// $Id$
+/**
+ * @file community_tags_node.module
+ *
+ * Provides synchronisation between community tags and node terms. Although
+ * this has previously been an integral part of community tagging, various use-cases
+ * call for different synchronisation strategies including no synchronisation
+ * at all. Making this a sub-module greatly simplifies the core CT module whilst
+ * making it much easier to cater to the various synchronisation strategies.
+ */
+
+// Synchronisation modes.
+define('COMMUNITY_TAGS_NODE_OPMODE_SYNC_NONE', 0x00);
+define('COMMUNITY_TAGS_NODE_OPMODE_SYNC_NT_TO_CT', 0x01);
+define('COMMUNITY_TAGS_NODE_OPMODE_SYNC_CT_TO_NT', 0x02);
+define('COMMUNITY_TAGS_NODE_OPMODE_SYNC_CT_TO_NT_EDIT_PERM', 0x04);
+
+/**
+ * Implementation of hook_menu().
+ */
+function community_tags_node_menu() {
+  $items = array();
+
+  $items['admin/settings/community-tags/ops/rebuild/%taxonomy_vocabulary'] = array(
+    'title' => 'Rebuild community tags',
+    'description' => 'Rebuild community tags.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('community_tags_node_rebuild_form', 5),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_CALLBACK,
+    'file' => 'community_tags_node.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_nodeapi(). Handle taxonomy on the node edit page
+ * and synchronise with CT where necessary.
+ *
+ * Community tags hooks should be called after taxonomy module hooks - see system
+ * weight in community_tags.install.
+ */
+function community_tags_node_nodeapi(&$node, $op, $teaser) {
+  switch ($op) {
+    case 'insert':
+      _community_tags_node_insert($node);
+      break;
+    case 'update':
+      if(!isset($node->community_tags_op)) {
+        _community_tags_node_update($node);
+      }
+      break;
+    case 'delete':
+      // this is handled by community tags for the purpose of maintaining referential integrity
+      break;
+  }
+}
+
+/*****************************************************************************
+ * Form hooks for Community tags admin.
+ ****************************************************************************/
+/**
+ * Implementation of hook_form_FORM_ID_alter() for community tags settings form.
+ */
+function community_tags_node_form_community_tags_sub_settings_alter(&$form, &$form_state) {
+  // include admin.inc.
+  module_load_include('inc', 'community_tags_node', 'community_tags_node.admin');
+  _community_tags_node_sub_settings($form, $form_state);
+}
+
+/**
+ * Implementation of hook_form_FORM_ID_alter() for delete community tags confirmation form.
+ */
+function community_tags_node_form_community_tags_delete_all_form_alter(&$form, &$form_state) {
+  // include admin.inc.
+  module_load_include('inc', 'community_tags_node', 'community_tags_node.admin');
+  _community_tags_node_delete_all($form, $form_state);
+}
+
+/**
+ * Implementation of hook_form_FORM_ID_alter() for community tag managment form.
+ */
+function community_tags_node_form_community_tags_node_tag_mgmt_form_alter(&$form, &$form_state) {
+  if(isset($form_state['values']['operation'])) {
+    // add for multiple operations
+    $form['#submit'][] = 'community_tags_node_node_tag_mgmt_confirm_submit';
+  } else {
+    $node = $form['#node'];
+    if($form['tags']['#options'] && is_array($form['tags']['#options'])) {
+
+      $tag_tids = array_keys($form['tags']['#options']);
+      $node_term_tids = array_keys($node->taxonomy);
+
+      $tag_only_tids = array_diff($tag_tids, $node_term_tids);
+
+      foreach($tag_only_tids as $tid) {
+        $form['operations'][$tid]['#operations'][] =
+          array(
+            'title' => t('Promote'),
+            'href' => 'community-tags/tagmgmtops/promote/'.$node->nid.'/'.$tid,
+            'query' => drupal_get_destination()
+          );
+
+        $form['operations'][$tid]['#value'] = theme_links($form['operations'][$tid]['#operations']);
+      }
+
+      $form['options']['operation']['#options']['promote'] = t('Promote');
+    }
+  }
+}
+
+/**
+ * Implementation of hook_form_FORM_ID_alter() for community tag managment operation confirmation form.
+ */
+function community_tags_node_form_community_tags_node_tag_mgmt_confirm_alter(&$form, &$form_state) {
+  // add for single link triggered operations
+  $form['#submit'][] = 'community_tags_node_node_tag_mgmt_confirm_submit';
+}
+
+/**
+ * Submit handler for tag mgmt operation confirm form.
+ */
+function community_tags_node_node_tag_mgmt_confirm_submit($form, &$form_state) {
+  if($form['#ct_op'] == 'promote') {
+    $nid = $form['#node']->nid;
+    $tids = $form['#tids'];
+
+    $node_to_save = node_load($nid, NULL, TRUE);
+
+    foreach($tids as $tid) {
+      $term = taxonomy_get_term($tid);
+      $node_to_save->taxonomy[$tid] = $term;
+      $node_save_required = TRUE;
+    }
+
+    $node_to_save->community_tags_op = TRUE;
+    node_save($node_to_save);
+    drupal_set_message(t('%count tags promoted.', array('%count' => count($tids))));
+  }
+}
+
+/*****************************************************************************
+ * Community tags hook implementations.
+ ****************************************************************************/
+/**
+ * Implementation of hook_community_tags_tags_added(). Implement this rather
+ * than hook_community_tags_tag() as we only want to do this when a tag is actually
+ * added.
+ *
+ * Apply node term synchronisation of added tags.
+ * @todo - add options to syncronisation - e.g. if role x tags then make it a node term
+ */
+function community_tags_node_community_tags_tags_added($node, $user, $tags) {
+  static $node_to_save;
+
+  if(!_community_tags_node_is_processing()) {
+    // make sure we got the latest node
+    if(!$node_to_save) {
+      $node_to_save = _community_tags_get_node($node->nid);
+    }
+    // add new tags
+    foreach($tags as $tid => $tag) {
+      // if tags are synched with node terms and this tag isn't a node term - then add it to node terms
+      if(!isset($node_to_save->taxonomy[$tid])
+        && (_community_tags_node_is_opmode(COMMUNITY_TAGS_NODE_OPMODE_SYNC_CT_TO_NT, $tag->vid, $node->type)
+          || _community_tags_node_is_editor_tag($node, $user, $tag))) {
+        $node_to_save->taxonomy[$tid] = $tag;
+        $node_save_required = TRUE;
+      }
+    }
+
+    if($node_save_required) {
+      // setting this will prevent full CT node update processing
+      $node_to_save->community_tags_op = TRUE;
+      // invoke full node save pipeline - term nodes will be updated, and good stuff like search (including the Apache SOLR Integration module) will know about it.
+      _community_tags_node_save($node_to_save);
+    }
+  }
+}
+
+/**
+ * Return true if tag by node editor and node term should be created
+ */
+function _community_tags_node_is_editor_tag($node, $user, $tag) {
+  if(_community_tags_node_is_opmode(COMMUNITY_TAGS_NODE_OPMODE_SYNC_CT_TO_NT_EDIT_PERM, $tag->vid, $node->type)) {
+    return node_access('update', $node, $user);
+  }
+}
+
+/**
+ * Implementation of hook_community_tags_tags_removed(). Don't process if tags
+ * being removed because node is being deleted or term is being deleted as taxonomy
+ * module will take care of deleting node terms.
+ *
+ * Apply node term synchronisation of removed tags. Will handle any set of ctags
+ * for any combination of nodes, users, and terms.
+ *
+ * @todo - add options to syncronisation - e.g. if role x untags then rmove from node terms
+ */
+function community_tags_node_community_tags_tags_removed($node, $user, $terms, $source, $removed_ctags) {
+  // only process if this module processing flag and not a node or term delete
+  if(!_community_tags_node_is_processing() && !($source == 'node:delete' || $source == 'term:delete')) {
+    // remove node terms if last tag being deleted
+
+    // group by node so we only need to save each node once.
+    $ctags_by_node = community_tags_tags_group_by($removed_ctags, 'nid');
+    foreach($ctags_by_node as $nid => $ctags_for_node) {
+      $node_save_required = FALSE;
+      $node_to_save = _community_tags_get_node($nid);
+
+      // now group by vid as logic depends on combination of vid and node type
+      $ctags_for_node_by_vid = community_tags_tags_group_by($ctags_for_node, 'vid');
+
+      foreach($ctags_for_node_by_vid as $vid => $ctags_for_node_and_vid) {
+        $first_ctag_for_node_and_vid = reset($ctags_for_node_and_vid);
+        if(_community_tags_node_is_opmode(COMMUNITY_TAGS_NODE_OPMODE_SYNC_CT_TO_NT, $vid, $node_to_save->type)) {
+          // logic is - for each term if the number of tags being removed is equal to the tag count - then remove
+          // but it could be more complicated than that...
+          // so group by tid
+          $ctags_for_node_and_vid_by_tid = community_tags_tags_group_by($ctags_for_node_and_vid, 'tid');
+          foreach($ctags_for_node_and_vid_by_tid as $tid => $ctags_for_node_and_vid_and_tid) {
+            // $ctags_for_node_and_vid_and_tid is the set of tags for this node and term for all users
+            $first_ctag_for_node_and_vid_and_tid = reset($ctags_for_node_and_vid_and_tid);
+            if(count($ctags_for_node_and_vid_and_tid) == $first_ctag_for_node_and_vid_and_tid->count && isset($node_to_save->taxonomy[$tid])) {
+              // i.e. all tags for this term are being removed for the node - therefore delete the node term
+              unset($node_to_save->taxonomy[$tid]);
+              $node_save_required = TRUE;
+            }
+          }
+        }
+      }
+
+      // if node terms were removed from this node then save.
+      if($node_save_required) {
+        // setting this will prevent full CT node update processing
+        $node_to_save->community_tags_op = TRUE;
+        // invoke full node save pipeline - term nodes will be updated, and good stuff like search (including the Apache SOLR Integration module) will know about it.
+        _community_tags_node_save($node_to_save);
+      }
+    }
+  }
+}
+
+/**
+ * Statically cache nodes which are updated if the node is saved via community_tags_node_save().
+ * After normal node save subsequent node_loads would not get node terms added in the same request
+ * due to static caching of node terms in taxonomy_node_get_terms()
+ */
+function _community_tags_get_node($nid, $node = NULL) {
+  static $nodes = array();
+
+  if($node) {
+    $nodes[$nid] = $node;
+    return $node;
+  }
+  elseif (!empty($nodes[$nid])) {
+    return $nodes[$nid];
+  }
+  elseif ($node = node_load($nid)) {
+    $nodes[$nid] = $node;
+    return $node;
+  }
+}
+
+/**
+ * statically cache nodes which are updated if the node is saved via community_tags_node_save().
+ */
+function _community_tags_node_save($node) {
+  // update static cache
+  _community_tags_get_node($node->nid, $node);
+  node_save($node);
+}
+
+/**
+ * Implementation of hook_community_tags_admin_operations(). Return a rebuild
+ * link if tags and node terms are not in sync.
+ */
+function community_tags_node_community_tags_admin_operations($vid, $content_type) {
+  // include admin.inc.
+  module_load_include('inc', 'community_tags_node', 'community_tags_node.admin');
+  return _community_tags_node_community_tags_admin_operations($vid, $content_type);
+}
+
+/**
+ * Implementation of hook_community_tags_admin_status(). Return the any
+ * out of sync messages.
+ */
+function community_tags_node_community_tags_admin_status($vid, $content_type) {
+  // include admin.inc.
+  module_load_include('inc', 'community_tags_node', 'community_tags_node.admin');
+  return _community_tags_node_community_tags_admin_status($vid, $content_type);
+}
+
+/*****************************************************************************
+ * 'Private' functions.
+ ****************************************************************************/
+/**
+ * Node has been inserted. All node terms are added to ctags attributed to the node editor.
+ */
+function _community_tags_node_insert($node) {
+  global $user;
+
+  _community_tags_node_is_processing(TRUE);
+
+  // get CT vocabularies for this node
+  $vids = community_tags_vids_for_node($node);
+
+  // filter out non CT vocabulary terms, convert tag names to terms, and identify new tags
+  $processed_tags_and_terms = _community_tags_node_process_tags_and_terms($node->taxonomy, $vids, $node, $user->uid);
+
+  // add all to community_tags
+  $all_terms = array();
+  foreach($processed_tags_and_terms as $vid => $tags_and_terms) {
+    $all_terms += $tags_and_terms['terms'];
+  }
+
+  community_tags_add_tags($node, $user, $all_terms);
+}
+
+/**
+ * Node has been updated. All terms that are not ctags are added to ctags attributed to the current user. Removed
+ * terms are removed from ctags either for all users (sync mode) or just the current user.
+ */
+function _community_tags_node_update($node) {
+  global $user;
+
+  _community_tags_node_is_processing(TRUE);
+
+  // get CT vocabularies for this node
+  $vids = community_tags_vids_for_node($node);
+
+  // filter out non CT vocabulary terms, convert tag names to terms, and identify new tags
+  $processed_tags_and_terms = _community_tags_node_process_tags_and_terms($node->taxonomy, $vids, $node, $user->uid);
+
+  // for each vocabulary supplied
+  foreach ($processed_tags_and_terms as $vid => $tags_and_terms) {
+    if(_community_tags_node_is_opmode(COMMUNITY_TAGS_NODE_OPMODE_SYNC_NT_TO_CT, $vid, $node->type)) {
+      // compare existing node terms to processed terms - add or delete as required.
+      $existing_tags = _community_tags_get_node_user_vid_tags($node, NULL, $vid);
+      $new_tags = array_diff_key($tags_and_terms['terms'], $existing_tags);
+      $removed_tags = array_diff_key($existing_tags, $tags_and_terms['terms']);
+
+      if(!empty($new_tags)) {
+        // add tags
+        community_tags_add_tags($node, $user, $new_tags);
+      }
+
+      if(!empty($removed_tags)) {
+        // remove tags - we may need to remove new tags if for example they been held up in a moderation
+        // queue (e.g. unitag) and haven't made it as terms yet.
+        if(_community_tags_node_is_opmode(COMMUNITY_TAGS_NODE_OPMODE_SYNC_CT_TO_NT, $vid, $node->type)) {
+          // if in aggressive SYNC mode or node terms are synced with community tags - delete all ctags for removed node term
+          community_tags_remove_tags($node, NULL, $removed_tags);
+        }
+        else {
+          // if not in aggressive SYNC mode - only delete the current user's tag for the removed node term
+          community_tags_remove_tags($node, $user, $removed_tags);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Get CT node settings.
+ */
+function _community_tags_node_get_settings($vid, $content_type) {
+  $all_settings = variable_get('community_tags_node_settings', array());
+  if(empty($all_settings[$vid]['types'][$content_type])) {
+    $settings = array();
+  }
+  else {
+    $settings = $all_settings[$vid]['types'][$content_type];
+  }
+
+  if(empty($settings['policy'])) {
+    $settings['policy'] = 'editor';
+  }
+
+  $settings['opmode'] = _community_tags_node_get_opmode($settings['policy']);
+  return $settings;
+}
+
+/**
+ * Convert synchronisation policy into operation mode.
+ */
+function _community_tags_node_get_opmode($policy) {
+  $opmode = 0x00;
+
+  switch($policy) {
+    case 'strict':
+      $opmode |= COMMUNITY_TAGS_NODE_OPMODE_SYNC_CT_TO_NT;
+    case 'editor':
+      $opmode |= COMMUNITY_TAGS_NODE_OPMODE_SYNC_CT_TO_NT_EDIT_PERM;
+    case 'minimal':
+      $opmode |= COMMUNITY_TAGS_NODE_OPMODE_SYNC_NT_TO_CT;
+  }
+
+  return $opmode;
+}
+
+/**
+ * Determine whether such and such a CT node operation mode is set for tagging in given vocabulary and type. Returns
+ * true if any of the modes is set.
+ *
+ * @param $modes
+ *  A bitwise OR of the operation modes to test.
+ *
+ * @todo Add settings to admin screen. Is it necessary to have settings per vid / per type?
+ */
+function _community_tags_node_is_opmode($modes, $vid, $content_type) {
+  $settings = _community_tags_node_get_settings($vid, $content_type);
+  if($settings) {
+    return $settings['opmode'] & $modes;
+  }
+  // default to keeping node terms and community tags in sync
+  return FALSE;
+}
+
+/**
+ * Flag set if CT operation that invoked hook was instigated by node operation.
+ */
+function _community_tags_node_is_processing($flag = NULL) {
+  static $static_flag = FALSE;
+
+  if(!is_null($flag)) {
+    $static_flag = $flag;
+  }
+
+  return $static_flag;
+}
+
+

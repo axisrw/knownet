@@ -1,0 +1,152 @@
+<?php
+// $Id$
+/**
+ * @file community_tags_views.module
+ *
+ * Views integration for community tags module. Implements community tags hooks
+ * for interactive views with tagging form attachment.
+ */
+
+/**
+ * Implementation of hook_views_api
+ * See community_tags.views.inc for the actual views integration
+ */
+function community_tags_views_views_api()
+{
+  return array (
+  'api'=>2,
+  );
+}
+
+/**
+ * Experimental code! Determine when a block with the CT attachment
+ * is being output and add required CT js and css. Works with block cached
+ * view blocks. Probably much better to do this at the theme level...
+ *
+ * Works by scanning views block content for a CT string. Other possibilities
+ * include loading the view definition and checking for the CT attachment. Or
+ * always adding the CT and views JS to the page.
+ *
+ * NOTE: This is NOT invoked - offered as an alternative to the sledgehammer approach above.
+ */
+function _community_tags_views_init() {
+  static $once = FALSE;
+  if(!$once) {
+    init_theme();
+    global $theme;
+    // Populate all block regions.
+    $regions = system_region_list($theme);
+    // Load all region content assigned via blocks.
+    foreach (array_keys($regions) as $region) {
+      $block_list = block_list($region);
+      foreach($block_list as $key => $block) {
+        if($block->module == 'views') {
+          // scan content for a CT string
+          if(strpos($block->content, 'community-tags-form')) {
+            _community_tags_views_add_js();
+          }
+        }
+      }
+    }
+
+    $once = TRUE;
+  }
+}
+
+function _community_tags_views_add_js() {
+  static $once = FALSE;
+
+  if(!$once) {
+    drupal_add_js(drupal_get_path('module', 'community_tags_views') .'/community_tags_views.js');
+    _community_tags_add_js();
+    _community_tags_add_css();
+    // views_add_js('ajax_view');
+  }
+}
+
+/**
+ * Implement hook_community_tags_json_alter. Returns the complete view in the
+ * ajax reponse.
+ */
+function community_tags_views_community_tags_json_alter(&$json, $node, $user, $vid) {
+  if(!empty($_POST['source']) && $_POST['source'] == 'views_tagform_attachment') {
+    $settings = $_POST;
+
+    if(isset($settings['view_name']) && isset($settings['view_display_id'])) {
+      $name = $settings['view_name'];
+      $display_id = $settings['view_display_id'];
+      $args = isset($settings['view_args']) && $settings['view_args'] !== '' ? explode('/', $settings['view_args']) : array();
+      $path = isset($settings['view_path']) ? $settings['view_path'] : NULL;
+      $dom_id = isset($settings['view_dom_id']) ? intval($settings['view_dom_id']) : NULL;
+      $pager_element = isset($settings['pager_element']) ? intval($settings['pager_element']) : NULL;
+      views_include('ajax');
+      $object = new stdClass();
+
+      $object->status = FALSE;
+      $object->display = '';
+
+      $arg = explode('/', $settings['view_path']);
+
+      $_REQUEST = array_diff_key($_REQUEST, drupal_map_assoc(array('tags', 'sequence', 'add', 'extra', 'source', 'token')));
+
+      // Load the view.
+      if ($view = views_get_view($name)) {
+        if ($view->access($display_id)) {
+          // need to invalidate cache
+          _community_tags_views_invalidate_cache($view, $display_id, $path);
+
+          // Fix 'q' for paging.
+          if (!empty($path)) {
+            $_GET['q'] = $path;
+          }
+
+          // Override the display's pager_element with the one actually used.
+          if (isset($pager_element)) {
+            $view->display[$display_id]->handler->set_option('pager_element', $pager_element);
+          }
+          // Reuse the same DOM id so it matches that in Drupal.settings.
+          $view->dom_id = $dom_id;
+
+          $errors = $view->validate();
+          if ($errors === TRUE) {
+            $object->status = TRUE;
+            $object->title = $view->get_title();
+            $object->display .= $view->preview($display_id, $args);
+            $object->request = $_REQUEST;
+          }
+          else {
+            foreach ($errors as $error) {
+              drupal_set_message($error, 'error');
+            }
+          }
+          // Register the standard JavaScript callback.
+          $object->__callbacks = array('Drupal.Views.Ajax.ajaxViewResponse');
+          // Allow other modules to extend the data returned.
+          drupal_alter('ajax_data', $object, 'views', $view);
+        }
+        $messages = theme('status_messages');
+        $object->messages = $messages ? '<div class="views-messages">' . $messages . '</div>' : '';
+
+        $json['view'] = $object;
+      }
+    }
+  }
+}
+
+/**
+ * Clear cached block for this page for all users.
+ */
+function _community_tags_views_invalidate_cache($view, $display_id, $path) {
+  $display_handler = &$view->display[$display_id]->handler;
+  $cache_type = $display_handler->get_cache_type();
+
+  if($cache_type == BLOCK_CACHE_PER_USER | BLOCK_CACHE_PER_PAGE) {
+    $url = url($path, array('absolute' => TRUE));
+
+    $cid = 'views:'.$view->name .'-'. $display_id .':%%:'. $url;
+
+    // only valid if block caching per user and page
+    db_query("DELETE FROM {cache_block} WHERE cid LIKE '%s'", $cid);
+  }
+}
+

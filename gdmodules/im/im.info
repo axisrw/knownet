@@ -1,0 +1,16 @@
+; $Id: im.info,v 1.1.2.3 2009/04/10 06:19:34 pahariwalla Exp $
+name = IM
+description = "A simple instant messanger"
+core = 6.x
+package = Other
+
+
+
+
+
+; Information added by drupal.org packaging script on 2010-07-11
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "im"
+datestamp = "1278834532"
+
